@@ -33,7 +33,7 @@ THIRD_PARTY_APPS = [
 
 PROJECT_APPS = [
     "apps.accounts",
-    # "apps.dingtalk",    # Will enable after creating models
+    "apps.dingtalk",
     # "apps.reports",
     # "apps.projects",
     # "apps.stats",
