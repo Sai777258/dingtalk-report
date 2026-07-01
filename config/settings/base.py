@@ -34,9 +34,9 @@ THIRD_PARTY_APPS = [
 PROJECT_APPS = [
     "apps.accounts",
     "apps.dingtalk",
-    # "apps.reports",
-    # "apps.projects",
-    # "apps.stats",
+    "apps.reports",
+    "apps.projects",
+    "apps.stats",
     # "apps.exports",
 ]
 

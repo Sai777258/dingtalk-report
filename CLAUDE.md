@@ -62,7 +62,7 @@ class AccountsConfig(AppConfig):
     verbose_name = "用户与部门"
 ```
 
-`INSTALLED_APPS` = `DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS`. Only `apps.accounts` is active; the other 5 apps (`dingtalk`, `reports`, `projects`, `stats`, `exports`) are commented out until their models are created.
+`INSTALLED_APPS` = `DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS`. Active apps: `accounts`, `dingtalk`, `reports`, `projects`, `stats`. `exports` is commented out until its models are created.
 
 ### Authentication modes
 
@@ -71,10 +71,15 @@ Three modes that coexist:
 2. **Demo login** (active during dev) — `POST /api/auth/demo-login/` accepts username+password, returns JWT + user profile. Guarded by `DINGTALK_DEMO_MODE=True`
 3. **DingTalk SSO** (designed, not yet built) — QR code OAuth2 flow
 
-### Key models (apps/accounts/models.py)
+### Key models
 
-- **`Department`** — tree structure via `parent` self-FK; `manager` FK → User; `dingtalk_dept_id`
-- **`User`** (extends `AbstractUser`) — `AUTH_USER_MODEL = "accounts.User"`. Five roles via `TextChoices`: `admin`, `executive`, `dept_manager`, `product_manager`, `employee`. DingTalk identity fields (`dingtalk_user_id`, `union_id`, `open_id`). Permission helpers: `can_view_department(dept)`, `can_view_project(project)`
+- **`accounts.Department`** — tree via `parent` self-FK; `manager` FK → User; `dingtalk_dept_id`
+- **`accounts.User`** (extends `AbstractUser`) — `AUTH_USER_MODEL`. Five roles via `TextChoices`. Permission helpers: `can_view_department(dept)`, `can_view_project(project)`
+- **`projects.Project`** — name/code/aliases (JSON), product_managers M2M, `match_text()` for log parsing
+- **`reports.WorkReport`** — raw DingTalk log JSON in `raw_contents`, linked to creator/department/sync_log
+- **`reports.ReportContent`** — per-field content split (今日完成工作, 明日计划, etc.)
+- **`stats.WorkEntry`** — parsed work-hour record (the core analytic unit). Links to report/employee/department/project. Has confidence score (0-100) and `is_categorized` flag. 4 DB indexes for aggregation queries
+- **`dingtalk.SyncLog`** — sync operation audit trail
 
 ### API pattern
 
