@@ -1,0 +1,150 @@
+/* ================================================================
+   工作汇报统计系统 — Design Tokens
+   "Precision Instrument" — industrial measurement aesthetic
+   ================================================================ */
+
+:root {
+  /* ---- Palette ---- */
+  --steel: #1B1F2A;
+  --steel-light: #262B38;
+  --paper: #F5F3EE;
+  --brass: #C8A45C;
+  --brass-hover: #B89440;
+  --blueprint: #4A90A4;
+  --sage: #7D9B76;
+  --vermilion: #D4695A;
+  --text-primary: #2A2D34;
+  --text-secondary: #6E727A;
+  --text-muted: #9DA0A8;
+  --border: #E0DDD6;
+  --border-focus: rgba(200, 164, 92, 0.4);
+
+  /* ---- Typography — Chinese-first stack ---- */
+  --font-display: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  --font-body: "PingFang SC", "Microsoft YaHei", "Inter", sans-serif;
+  --font-mono: "SF Mono", "Consolas", "Courier New", monospace;
+
+  /* ---- Type scale ---- */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.5rem;
+
+  /* ---- Spacing ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---- Radii ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ---- Shadows ---- */
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.12);
+
+  /* ---- Transitions ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 600ms;
+}
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--steel);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* ---- Focus visible ---- */
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* ---- Override Element Plus button to use brass accent ---- */
+.el-button--primary {
+  --el-button-bg-color: var(--brass);
+  --el-button-border-color: var(--brass);
+  --el-button-hover-bg-color: var(--brass-hover);
+  --el-button-hover-border-color: var(--brass-hover);
+  --el-button-active-bg-color: var(--brass-hover);
+  --el-button-active-border-color: var(--brass-hover);
+}
+
+/* ---- Override Element Plus input focus ---- */
+.el-input.is-focus .el-input__wrapper {
+  box-shadow: 0 0 0 1px var(--border-focus) inset !important;
+}
+
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--border) inset;
+}
+
+/* ---- Link ---- */
+.el-link {
+  --el-link-text-color: var(--blueprint);
+}
+.el-link:hover {
+  --el-link-text-color: var(--brass);
+}
+
+/* ---- Scrollbar (Webkit) ---- */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

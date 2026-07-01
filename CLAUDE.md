@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-钉钉工作汇报统计系统 — a standalone web app (not embedded in DingTalk) for parsing DingTalk work reports, aggregating work hours by project/employee/department, and enforcing role-based data access. Python full stack: Django 6.0 + DRF backend, Vue 3 + Element Plus + ECharts frontend (not yet created).
+钉钉工作汇报统计系统 — a standalone web app (not embedded in DingTalk) for parsing DingTalk work reports, aggregating work hours by project/employee/department, and enforcing role-based data access. Python full stack: Django 6.0 + DRF backend, Vue 3 + Element Plus frontend.
 
 See `设计方案.md` for the full design document (13 sections) and `工程日志.md` for the implementation log.
 
@@ -36,7 +36,38 @@ pip install -r requirements/prod.txt           # base + psycopg2 + gunicorn
 
 # Create a new app (always use apps. prefix)
 python manage.py startapp <name> apps/<name>
+
+# ---- Frontend (Vue 3 + Vite) ----
+cd frontend
+npm install                                    # Install dependencies
+npm run dev                                    # Dev server on :5173, proxies /api to :8000
+npm run build                                  # Production build
 ```
+
+## Frontend Architecture
+
+### Tech stack
+Vue 3 (Composition API, `<script setup>`) + Vite + Element Plus + vue-router + Pinia + Axios.
+
+### Directory layout
+```
+frontend/src/
+├── api/index.js       # Axios instance with JWT interceptor + 401 redirect
+├── api/auth.js        # demoLogin(), getCurrentUser()
+├── router/index.js    # /login (guest), / (requiresAuth) + navigation guard
+├── stores/auth.js     # Pinia auth store (token in localStorage, login/logout/fetchUser)
+├── views/LoginView.vue   # Demo login page
+├── views/DashboardView.vue  # Placeholder dashboard
+├── style.css          # Design tokens (CSS custom properties) + Element Plus overrides
+├── App.vue            # Root: <RouterView />
+└── main.js            # createApp → Pinia → Router → ElementPlus → mount
+```
+
+### Design tokens (style.css)
+"Precision Instrument" theme: `--steel: #1B1F2A`, `--paper: #F5F3EE`, `--brass: #C8A45C`, `--blueprint: #4A90A4`, `--sage: #7D9B76`, `--vermilion: #D4695A`. Font stack: `"PingFang SC", "Microsoft YaHei", "Inter", sans-serif`.
+
+### API proxy
+Vite dev server proxies `/api/*` → `http://127.0.0.1:8000`. In production, configure Nginx to serve frontend static files and proxy `/api/` to the Django backend.
 
 ## Architecture
 
