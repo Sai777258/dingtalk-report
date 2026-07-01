@@ -32,8 +32,8 @@ THIRD_PARTY_APPS = [
 ]
 
 PROJECT_APPS = [
-    # "apps.accounts",    # Will enable after creating models
-    # "apps.dingtalk",
+    "apps.accounts",
+    # "apps.dingtalk",    # Will enable after creating models
     # "apps.reports",
     # "apps.projects",
     # "apps.stats",
@@ -112,7 +112,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---- Custom User Model ----
-# AUTH_USER_MODEL = "accounts.User"  # Will enable after creating User model
+
+AUTH_USER_MODEL = "accounts.User"
 
 # ---- DRF ----
 
