@@ -208,7 +208,10 @@ class Command(BaseCommand):
 
         report_count = 0
         entry_count = 0
-        report_id_seq = 1000
+
+        # Start sequence after the highest existing report ID to avoid collision
+        last_report = WorkReport.objects.order_by("-id").first()
+        report_id_seq = (last_report.id + 1000) if last_report else 1000
 
         for work_date in working_days:
             for user in users:

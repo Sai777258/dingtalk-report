@@ -1,172 +1,220 @@
 <script setup>
 /**
- * DashboardView — placeholder for the main dashboard.
+ * DashboardView — multi-perspective analytics dashboard.
+ *
+ * KPI cards are shared across all views. Four tabs provide different
+ * data perspectives: Overview, Employee, Project, Department.
  */
-import { useAuthStore } from '@/stores/auth'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { getDashboard } from '@/api/dashboard'
+import OverviewTab from '@/components/dashboard/OverviewTab.vue'
+import EmployeeTab from '@/components/dashboard/EmployeeTab.vue'
+import ProjectTab from '@/components/dashboard/ProjectTab.vue'
+import DepartmentTab from '@/components/dashboard/DepartmentTab.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
+
+// ---- State ----
+const loading = ref(true)
+const error = ref('')
+const summary = ref(null)
+const activeTab = ref('overview')
+
+// ---- Load summary (KPI + overview charts) ----
+async function loadDashboard() {
+  loading.value = true
+  error.value = ''
+  try {
+    summary.value = await getDashboard()
+  } catch (e) {
+    error.value = e.response?.data?.detail || '加载仪表盘数据失败'
+  } finally {
+    loading.value = false
+  }
+}
 
 function handleLogout() {
   auth.logout()
   router.push('/login')
 }
+
+onMounted(() => {
+  loadDashboard()
+})
 </script>
 
 <template>
   <div class="dashboard">
-    <div class="topbar">
-      <span class="topbar-title">工作汇报统计系统</span>
-      <div class="topbar-right">
-        <span class="user-info" v-if="auth.user">
-          {{ auth.user.first_name || auth.user.username }}
-          <span class="role-tag">{{ auth.user.role_display }}</span>
-        </span>
-        <el-button text size="small" @click="handleLogout">退出</el-button>
-      </div>
+    <!-- Loading -->
+    <div v-if="loading" class="loading-state">
+      <div class="brand-mark" />
+      <p>加载中…</p>
     </div>
 
-    <div class="dashboard-body">
-      <div class="welcome-card">
-        <div class="brand-mark" />
-        <h2>欢迎使用工作汇报统计系统</h2>
-        <p class="welcome-text">
-          当前以 <strong>{{ auth.user?.role_display }}</strong> 身份登录。
-          仪表盘功能将在后续版本中实现。
-        </p>
-        <div class="stats-row">
-          <div class="stat-item">
-            <span class="stat-value">—</span>
-            <span class="stat-label">本月工时</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-value">—</span>
-            <span class="stat-label">活跃项目</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-value">—</span>
-            <span class="stat-label">日志条目</span>
-          </div>
+    <!-- Error -->
+    <div v-else-if="error" class="error-state">
+      <p>{{ error }}</p>
+      <el-button size="small" @click="loadDashboard">重试</el-button>
+    </div>
+
+    <!-- Content -->
+    <template v-else-if="summary">
+      <!-- ---- KPI Cards (shared) ---- -->
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-value">{{ summary.total_hours_this_month }}</span>
+          <span class="kpi-label">本月总工时 (h)</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value">{{ summary.total_reports_this_month }}</span>
+          <span class="kpi-label">本月日志数</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value">{{ summary.active_projects }}</span>
+          <span class="kpi-label">活跃项目</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value">{{ summary.active_employees }}</span>
+          <span class="kpi-label">活跃人员</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value">{{ summary.avg_daily_hours }}</span>
+          <span class="kpi-label">日均工时 (h)</span>
         </div>
       </div>
-    </div>
+
+      <!-- ---- Tabs ---- -->
+      <el-tabs v-model="activeTab" class="dash-tabs">
+        <el-tab-pane label="概览" name="overview">
+          <OverviewTab :summary="summary" />
+        </el-tab-pane>
+
+        <el-tab-pane label="员工视角" name="employee">
+          <Suspense>
+            <EmployeeTab />
+            <template #fallback>
+              <div class="tab-loading">加载中…</div>
+            </template>
+          </Suspense>
+        </el-tab-pane>
+
+        <el-tab-pane label="项目视角" name="project">
+          <Suspense>
+            <ProjectTab />
+            <template #fallback>
+              <div class="tab-loading">加载中…</div>
+            </template>
+          </Suspense>
+        </el-tab-pane>
+
+        <el-tab-pane label="部门视角" name="department">
+          <Suspense>
+            <DepartmentTab />
+            <template #fallback>
+              <div class="tab-loading">加载中…</div>
+            </template>
+          </Suspense>
+        </el-tab-pane>
+      </el-tabs>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .dashboard {
-  min-height: 100vh;
-  background: var(--steel-light);
+  padding: var(--space-6);
+  max-width: 1280px;
+  margin: 0 auto;
 }
 
-/* ---- Top bar ---- */
-.topbar {
+/* ---- Loading / Error ---- */
+.loading-state,
+.error-state {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  height: 56px;
-  background: var(--steel);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.topbar-title {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
-  letter-spacing: 1px;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.user-info {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: var(--text-sm);
-}
-
-.role-tag {
-  display: inline-block;
-  font-size: var(--text-xs);
-  color: var(--brass);
-  margin-left: var(--space-2);
-}
-
-/* ---- Body ---- */
-.dashboard-body {
-  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 56px);
-  padding: var(--space-6);
-}
-
-.welcome-card {
-  background: var(--paper);
-  border-radius: var(--radius-lg);
-  padding: var(--space-12) var(--space-10);
-  max-width: 520px;
-  width: 100%;
-  text-align: center;
-  box-shadow: var(--shadow-card);
+  min-height: 60vh;
+  gap: var(--space-4);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .brand-mark {
-  width: 36px;
-  height: 4px;
+  width: 28px;
+  height: 3px;
   background: var(--brass);
-  margin: 0 auto var(--space-5);
   border-radius: 2px;
 }
 
-.welcome-card h2 {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: var(--space-3);
+.tab-loading {
+  padding: var(--space-8);
+  text-align: center;
+  color: rgba(255, 255, 255, 0.3);
 }
 
-.welcome-text {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.7;
+/* ---- KPI cards ---- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
-.welcome-text strong {
-  color: var(--brass);
-}
-
-/* ---- Stats row ---- */
-.stats-row {
-  display: flex;
-  gap: var(--space-6);
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border);
-}
-
-.stat-item {
-  flex: 1;
+.kpi-card {
+  background: var(--steel-light);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.stat-value {
+.kpi-value {
   font-family: var(--font-mono);
   font-size: var(--text-2xl);
   font-weight: 300;
-  color: var(--text-muted);
+  color: var(--brass);
 }
 
-.stat-label {
+.kpi-label {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ---- Tabs ---- */
+:deep(.el-tabs__header) {
+  margin-bottom: var(--space-4);
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:deep(.el-tabs__item) {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: var(--text-sm);
+  height: 40px;
+  line-height: 40px;
+}
+
+:deep(.el-tabs__item.is-active) {
+  color: var(--brass);
+}
+
+:deep(.el-tabs__active-bar) {
+  background: var(--brass);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .kpi-row { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 540px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

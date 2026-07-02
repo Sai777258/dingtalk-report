@@ -165,6 +165,15 @@ DINGTALK_CORP_ID = config("DINGTALK_CORP_ID", default="")
 DINGTALK_OAUTH_REDIRECT_URI = config("DINGTALK_OAUTH_REDIRECT_URI", default="")
 DINGTALK_DEMO_MODE = config("DINGTALK_DEMO_MODE", default=True, cast=bool)
 
+# ---- External DingTalk log database (MySQL, read-only source for import) ----
+
+EXTERNAL_DB_HOST = config("EXTERNAL_DB_HOST", default="")
+EXTERNAL_DB_PORT = config("EXTERNAL_DB_PORT", default="3306", cast=int)
+EXTERNAL_DB_NAME = config("EXTERNAL_DB_NAME", default="dd_log")
+EXTERNAL_DB_USER = config("EXTERNAL_DB_USER", default="")
+EXTERNAL_DB_PASSWORD = config("EXTERNAL_DB_PASSWORD", default="")
+EXTERNAL_DB_ENABLED = config("EXTERNAL_DB_ENABLED", default=False, cast=bool)
+
 # ---- Logging ----
 
 LOGGING = {
