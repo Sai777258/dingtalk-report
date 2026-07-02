@@ -5,7 +5,7 @@
  * KPI cards are shared across all views. Four tabs provide different
  * data perspectives: Overview, Employee, Project, Department.
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getDashboard } from '@/api/dashboard'
@@ -22,6 +22,18 @@ const loading = ref(true)
 const error = ref('')
 const summary = ref(null)
 const activeTab = ref('overview')
+
+// ---- Computed ----
+const scopeLabel = computed(() => {
+  if (auth.isAdmin) return '全公司'
+  if (auth.isDeptManagerL1) return '全公司'
+  if (auth.isDeptManagerL2) return auth.user?.department?.name || '部门'
+  if (auth.isProjectManager) return '负责项目'
+  return '个人'
+})
+
+const showEmployeeTab = computed(() => !auth.isEmployee)
+const showDepartmentTab = computed(() => auth.isAdmin || auth.isDeptManagerL1 || auth.isDeptManagerL2)
 
 // ---- Load summary (KPI + overview charts) ----
 async function loadDashboard() {
@@ -63,6 +75,9 @@ onMounted(() => {
     <!-- Content -->
     <template v-else-if="summary">
       <!-- ---- KPI Cards (shared) ---- -->
+      <div class="kpi-scope">
+        <span class="scope-badge">{{ scopeLabel }}</span>
+      </div>
       <div class="kpi-row">
         <div class="kpi-card">
           <span class="kpi-value">{{ summary.total_hours_this_month }}</span>
@@ -92,7 +107,7 @@ onMounted(() => {
           <OverviewTab :summary="summary" />
         </el-tab-pane>
 
-        <el-tab-pane label="员工视角" name="employee">
+        <el-tab-pane v-if="showEmployeeTab" label="员工视角" name="employee">
           <Suspense>
             <EmployeeTab />
             <template #fallback>
@@ -110,7 +125,7 @@ onMounted(() => {
           </Suspense>
         </el-tab-pane>
 
-        <el-tab-pane label="部门视角" name="department">
+        <el-tab-pane v-if="showDepartmentTab" label="部门视角" name="department">
           <Suspense>
             <DepartmentTab />
             <template #fallback>
@@ -153,6 +168,24 @@ onMounted(() => {
   padding: var(--space-8);
   text-align: center;
   color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---- Scope badge ---- */
+.kpi-scope {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.scope-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--brass);
+  border: 1px solid rgba(200, 164, 92, 0.25);
+  border-radius: 100px;
+  letter-spacing: 0.5px;
 }
 
 /* ---- KPI cards ---- */

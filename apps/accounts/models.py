@@ -37,12 +37,20 @@ class Department(models.Model):
 
 
 class User(AbstractUser):
-    """Extended user model with DingTalk identity and role-based permissions."""
+    """Extended user model with DingTalk identity and role-based permissions.
+
+    Roles (future: synced from LDAP group membership):
+      admin           — full data access + manage users/roles/system
+      dept_manager_l1 — full data access (same as admin), no user/system management
+      dept_manager_l2 — single department data only
+      project_manager — own data + managed projects' data
+      employee        — own data only
+    """
     class Role(models.TextChoices):
         ADMIN = "admin", "系统管理员"
-        EXECUTIVE = "executive", "公司高层"
-        DEPT_MANAGER = "dept_manager", "部门经理"
-        PRODUCT_MANAGER = "product_manager", "产品经理"
+        DEPT_MANAGER_L1 = "dept_manager_l1", "一级部门管理"
+        DEPT_MANAGER_L2 = "dept_manager_l2", "二级部门管理"
+        PROJECT_MANAGER = "project_manager", "项目经理"
         EMPLOYEE = "employee", "普通员工"
 
     role = models.CharField(
@@ -79,39 +87,48 @@ class User(AbstractUser):
         return self.role == self.Role.ADMIN
 
     @property
-    def is_executive(self):
-        return self.role == self.Role.EXECUTIVE
+    def is_dept_manager_l1(self):
+        return self.role == self.Role.DEPT_MANAGER_L1
 
     @property
-    def is_dept_manager(self):
-        return self.role == self.Role.DEPT_MANAGER
+    def is_dept_manager_l2(self):
+        return self.role == self.Role.DEPT_MANAGER_L2
 
     @property
-    def is_product_manager(self):
-        return self.role == self.Role.PRODUCT_MANAGER
+    def is_project_manager(self):
+        return self.role == self.Role.PROJECT_MANAGER
 
     @property
     def is_employee(self):
         return self.role == self.Role.EMPLOYEE
 
+    @property
+    def is_any_manager(self):
+        """True if user has any manager-level role (L1, L2, or project)."""
+        return self.role in (
+            self.Role.DEPT_MANAGER_L1,
+            self.Role.DEPT_MANAGER_L2,
+            self.Role.PROJECT_MANAGER,
+        )
+
     def can_view_department(self, dept):
-        """Check if user can view a specific department's data."""
-        if self.is_admin or self.is_executive:
+        """Check if user can view a specific department's data.
+
+        Uses get_visible_department_ids() for consistent filtering
+        (lazy-imported to avoid circular dependency).
+        """
+        from apps.accounts.permissions import get_visible_department_ids
+        if self.is_admin or self.is_dept_manager_l1:
             return True
-        if self.is_dept_manager:
-            # Can view own department and sub-departments
-            return dept == self.department or (
-                dept.parent and dept.parent == self.department
-            )
-        return dept == self.department
+        return dept.id in get_visible_department_ids(self)
 
     def can_view_project(self, project):
         """Check if user can view a specific project's data."""
-        if self.is_admin or self.is_executive:
+        if self.is_admin or self.is_dept_manager_l1:
             return True
-        if self.is_product_manager:
+        if self.is_project_manager:
             return project.product_managers.filter(pk=self.pk).exists()
-        if self.is_dept_manager:
+        if self.is_dept_manager_l2:
             return project.work_entries.filter(
                 employee__department=self.department
             ).exists()

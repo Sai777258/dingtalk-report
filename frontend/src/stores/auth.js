@@ -21,6 +21,13 @@ export const useAuthStore = defineStore('auth', () => {
   const userRole = computed(() => user.value?.role || null)
 
   const isAdmin = computed(() => user.value?.role === 'admin')
+  const isDeptManagerL1 = computed(() => user.value?.role === 'dept_manager_l1')
+  const isDeptManagerL2 = computed(() => user.value?.role === 'dept_manager_l2')
+  const isProjectManager = computed(() => user.value?.role === 'project_manager')
+  const isEmployee = computed(() => user.value?.role === 'employee')
+  const isAnyManager = computed(() =>
+    isDeptManagerL1.value || isDeptManagerL2.value || isProjectManager.value
+  )
 
   // ---- Actions ----
   async function login(username, password) {
@@ -81,6 +88,11 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     userRole,
     isAdmin,
+    isDeptManagerL1,
+    isDeptManagerL2,
+    isProjectManager,
+    isEmployee,
+    isAnyManager,
     login,
     fetchUser,
     logout,

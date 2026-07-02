@@ -29,9 +29,9 @@ class InfrastructureTest(TestCase):
         call_command("seed_demo", stdout=open(os.devnull, "w"))
 
         cls.admin = User.objects.get(username="admin")
-        cls.executive = User.objects.get(username="executive")
-        cls.dept_mgr = User.objects.get(username="dept_mgr")
-        cls.prod_mgr = User.objects.get(username="prod_mgr")
+        cls.dept_mgr_l1 = User.objects.get(username="dept_mgr_l1")
+        cls.dept_mgr_l2 = User.objects.get(username="dept_mgr_l2")
+        cls.proj_mgr = User.objects.get(username="proj_mgr")
         cls.employee = User.objects.get(username="employee")
         cls.tech_dept = Department.objects.get(name="技术部")
         cls.product_dept = Department.objects.get(name="产品部")
@@ -126,7 +126,7 @@ class InfrastructureTest(TestCase):
 
     def test_04_all_roles_can_login(self):
         c = Client()
-        for username in ["admin", "executive", "dept_mgr", "prod_mgr", "employee"]:
+        for username in ["admin", "dept_mgr_l1", "dept_mgr_l2", "proj_mgr", "employee"]:
             resp = c.post(
                 "/api/auth/demo-login/",
                 data=json.dumps({"username": username, "password": "admin123"}),
@@ -172,7 +172,7 @@ class InfrastructureTest(TestCase):
             name="测试项目", code="TEST-01",
             aliases=["测试", "TEST"],
         )
-        proj.product_managers.add(self.prod_mgr)
+        proj.product_managers.add(self.proj_mgr)
         self.assertIsNotNone(proj.pk)
         self.assertTrue(proj.match_text("【测试项目】开发"))
         self.assertTrue(proj.match_text("TEST-01"))
@@ -249,15 +249,34 @@ class InfrastructureTest(TestCase):
     # ==================================================================
     def test_07_role_properties(self):
         self.assertTrue(self.admin.is_admin)
-        self.assertTrue(self.executive.is_executive)
-        self.assertTrue(self.dept_mgr.is_dept_manager)
-        self.assertTrue(self.prod_mgr.is_product_manager)
+        self.assertTrue(self.dept_mgr_l1.is_dept_manager_l1)
+        self.assertTrue(self.dept_mgr_l2.is_dept_manager_l2)
+        self.assertTrue(self.proj_mgr.is_project_manager)
         self.assertTrue(self.employee.is_employee)
+        # Admin and L1 see all data
+        self.assertTrue(self.admin.is_any_manager or self.admin.is_admin)
+        self.assertTrue(self.dept_mgr_l1.is_any_manager)
+
+    def test_07a_l1_sees_all_data(self):
+        """L1 dept manager has same data scope as admin."""
+        from apps.accounts.permissions import get_visible_department_ids
+        admin_ids = get_visible_department_ids(self.admin)
+        l1_ids = get_visible_department_ids(self.dept_mgr_l1)
+        self.assertEqual(set(admin_ids), set(l1_ids))
+        # Both should see all departments
+        all_dept_count = Department.objects.count()
+        self.assertEqual(len(l1_ids), all_dept_count)
+
+    def test_07b_l2_sees_only_own_dept(self):
+        """L2 dept manager only sees their own department."""
+        from apps.accounts.permissions import get_visible_department_ids
+        l2_ids = get_visible_department_ids(self.dept_mgr_l2)
+        self.assertEqual(l2_ids, [self.dept_mgr_l2.department_id])
 
     def test_07_can_view_department(self):
         self.assertTrue(self.admin.can_view_department(self.tech_dept))
-        self.assertTrue(self.executive.can_view_department(self.product_dept))
-        self.assertTrue(self.dept_mgr.can_view_department(self.tech_dept))
+        self.assertTrue(self.dept_mgr_l1.can_view_department(self.product_dept))
+        self.assertTrue(self.dept_mgr_l2.can_view_department(self.dept_mgr_l2.department))
         self.assertTrue(self.employee.can_view_department(self.tech_dept))
 
     # ==================================================================

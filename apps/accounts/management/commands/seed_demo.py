@@ -2,7 +2,7 @@
 Management command to seed demo data for local development.
 
 Creates:
-- 3 departments: 技术部, 产品部, 市场部
+- 3 departments: 技术部, 产品部, 市场部 (with sub-departments)
 - 5 users (one per role), all with password "admin123"
 
 Usage:
@@ -21,9 +21,9 @@ DEMO_DEPARTMENTS = [
 
 DEMO_USERS = [
     {"username": "admin", "role": User.Role.ADMIN, "dept": "技术部", "name": "系统管理员"},
-    {"username": "executive", "role": User.Role.EXECUTIVE, "dept": None, "name": "公司高层"},
-    {"username": "dept_mgr", "role": User.Role.DEPT_MANAGER, "dept": "技术部", "name": "技术经理"},
-    {"username": "prod_mgr", "role": User.Role.PRODUCT_MANAGER, "dept": "产品部", "name": "产品经理"},
+    {"username": "dept_mgr_l1", "role": User.Role.DEPT_MANAGER_L1, "dept": "技术部", "name": "一级部门管理"},
+    {"username": "dept_mgr_l2", "role": User.Role.DEPT_MANAGER_L2, "dept": "前端组", "name": "二级部门管理"},
+    {"username": "proj_mgr", "role": User.Role.PROJECT_MANAGER, "dept": "产品部", "name": "项目经理"},
     {"username": "employee", "role": User.Role.EMPLOYEE, "dept": "技术部", "name": "普通员工"},
 ]
 

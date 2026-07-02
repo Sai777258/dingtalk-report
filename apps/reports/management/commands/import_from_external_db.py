@@ -122,12 +122,18 @@ class Command(BaseCommand):
             action="store_true",
             help="跳过 is_template=1 的模板日志",
         )
+        parser.add_argument(
+            "--clean-stale",
+            action="store_true",
+            help="清理本地已存在但外部 MySQL 中已删除的 ext_daily_* 过时记录",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         limit = options["limit"]
         sync_type = options["sync_type"]
         skip_template = options["skip_template"]
+        clean_stale = options["clean_stale"]
 
         label = "试运行" if dry_run else "正式导入"
         self.stdout.write(self.style.NOTICE(f"[*] 外部数据库导入 ({label}模式, {sync_type})..."))
@@ -198,20 +204,43 @@ class Command(BaseCommand):
         self.stdout.write(f"  符合条件的日志: {total:,} 条")
 
         if dry_run:
+            stale_result = {"checked": 0, "deleted": 0, "report_ids": []}
+            if clean_stale:
+                self.stdout.write("")
+                stale_result = self._clean_stale_records(conn, dry_run=True)
             sync_log.status = "success"
             sync_log.records_fetched = total
             sync_log.completed_at = timezone.now()
+            if clean_stale:
+                sync_log.response_summary["stale_checked"] = stale_result["checked"]
+                sync_log.response_summary["stale_to_delete"] = len(stale_result["report_ids"])
             sync_log.save()
             conn.close()
             self.stdout.write(self.style.SUCCESS(f"\n[OK] 试运行完成 — 共 {total} 条日志可供导入"))
+            if clean_stale and stale_result["report_ids"]:
+                self.stdout.write(
+                    f"     过时待清理: {len(stale_result['report_ids'])} 条"
+                )
             return
 
+        stale_result = {"checked": 0, "deleted": 0, "report_ids": []}
         if total == 0:
+            if clean_stale:
+                self.stdout.write("")
+                stale_result = self._clean_stale_records(conn, dry_run=False)
             sync_log.status = "success"
             sync_log.completed_at = timezone.now()
+            if clean_stale:
+                sync_log.response_summary["stale_checked"] = stale_result["checked"]
+                sync_log.response_summary["stale_deleted"] = stale_result["deleted"]
             sync_log.save()
             conn.close()
-            self.stdout.write("  无新数据需要导入")
+            if stale_result["deleted"]:
+                self.stdout.write(
+                    f"\n  清理过时数据: {stale_result['deleted']} 条"
+                )
+            else:
+                self.stdout.write("  无新数据需要导入")
             return
 
         # ---- Pre-load caches ----
@@ -265,6 +294,17 @@ class Command(BaseCommand):
         finally:
             conn.close()
 
+        # ---- Clean stale ----
+        if clean_stale:
+            # Re-open connection for stale check (conn was closed in finally)
+            stale_conn = get_external_connection()
+            try:
+                stale_result = self._clean_stale_records(stale_conn, dry_run=False)
+            finally:
+                stale_conn.close()
+        else:
+            stale_result = {"checked": 0, "deleted": 0, "report_ids": []}
+
         # ---- Finalize SyncLog ----
         sync_log.status = "success" if error_count == 0 else "partial"
         sync_log.records_fetched = records_fetched
@@ -275,6 +315,9 @@ class Command(BaseCommand):
             "work_entries_created": total_entries,
             "error_count": error_count,
         }
+        if clean_stale:
+            sync_log.response_summary["stale_checked"] = stale_result["checked"]
+            sync_log.response_summary["stale_deleted"] = stale_result["deleted"]
         sync_log.save()
 
         self.stdout.write(self.style.SUCCESS(
@@ -282,6 +325,97 @@ class Command(BaseCommand):
             f"日志: {records_imported} 条, 工时条目: {total_entries} 条, "
             f"跳过: {records_skipped}, 错误: {error_count}"
         ))
+        if clean_stale and stale_result["deleted"]:
+            self.stdout.write(
+                f"     过时清理: {stale_result['deleted']} 条源库已删除的记录"
+            )
+
+    # ------------------------------------------------------------------
+    def _clean_stale_records(self, conn, dry_run=False):
+        """Delete local ext_daily_* records whose source daily_logs no longer exist.
+
+        Args:
+            conn: pymysql connection to the external DB
+            dry_run: if True, only report what would be deleted
+
+        Returns:
+            dict with keys: checked, deleted, report_ids
+        """
+        import re
+
+        # 1. Collect all ext_daily IDs from local DB
+        local_reports = WorkReport.objects.filter(
+            dingtalk_report_id__startswith="ext_daily_"
+        )
+        local_ids = set()
+        for r in local_reports:
+            match = re.search(r"^ext_daily_(\d+)$", r.dingtalk_report_id)
+            if match:
+                local_ids.add(int(match.group(1)))
+
+        if not local_ids:
+            self.stdout.write("  本地无 ext_daily_* 记录，跳过清理")
+            return {"checked": 0, "deleted": 0, "report_ids": []}
+
+        # 2. Query external MySQL for daily_log IDs that still exist
+        if len(local_ids) == 1:
+            id_tuple = f"({list(local_ids)[0]})"
+        else:
+            id_tuple = str(tuple(local_ids))
+
+        check_sql = f"SELECT id FROM daily_logs WHERE id IN {id_tuple}"
+        try:
+            with conn.cursor() as cur:
+                cur.execute(check_sql)
+                ext_ids = {row["id"] for row in cur.fetchall()}
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(
+                f"  [WARN] 无法查询外部 daily_logs 现有 ID: {e}"
+            ))
+            return {"checked": len(local_ids), "deleted": 0, "report_ids": []}
+
+        # 3. Stale = local - external
+        stale_ids = local_ids - ext_ids
+
+        if not stale_ids:
+            self.stdout.write(
+                f"  [OK] 已检查 {len(local_ids)} 条 ext_daily_ 记录，无过时数据"
+            )
+            return {"checked": len(local_ids), "deleted": 0, "report_ids": []}
+
+        stale_report_ids = [f"ext_daily_{sid}" for sid in stale_ids]
+        stale_reports = WorkReport.objects.filter(
+            dingtalk_report_id__in=stale_report_ids
+        )
+
+        if dry_run:
+            self.stdout.write(
+                f"  [DRY-RUN] 将删除 {stale_reports.count()} 条过时记录"
+                f" (共 {len(stale_ids)} 个 daily_log ID):"
+            )
+            for r in stale_reports.order_by("dingtalk_report_id"):
+                self.stdout.write(
+                    f"    - {r.dingtalk_report_id} | "
+                    f"creator={r.creator.first_name if r.creator else '?'} | "
+                    f"date={r.report_date}"
+                )
+            return {
+                "checked": len(local_ids),
+                "deleted": 0,
+                "report_ids": stale_report_ids,
+            }
+
+        # Actual deletion — WorkReport CASCADE deletes ReportContent + WorkEntry
+        deleted_count, details = stale_reports.delete()
+        self.stdout.write(
+            f"  [OK] 已清理 {len(stale_ids)} 条过时 daily_log 的本地记录 "
+            f"(删除 {deleted_count} 条: {details})"
+        )
+        return {
+            "checked": len(local_ids),
+            "deleted": len(stale_ids),
+            "report_ids": stale_report_ids,
+        }
 
     # ------------------------------------------------------------------
     def _import_one_log(self, dl_row, report_id, template, projects_cache, conn):

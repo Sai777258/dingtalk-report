@@ -85,9 +85,9 @@ class UserAdmin(BaseUserAdmin):
     def role_badge(self, obj):
         role_colors = {
             "admin": "#f56c6c",
-            "executive": "#e6a23c",
-            "dept_manager": "#409eff",
-            "product_manager": "#67c23a",
+            "dept_manager_l1": "#e6a23c",
+            "dept_manager_l2": "#409eff",
+            "project_manager": "#67c23a",
             "employee": "#909399",
         }
         color = role_colors.get(obj.role, "#909399")

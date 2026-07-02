@@ -203,6 +203,7 @@ class DashboardView(APIView):
                 emp_map[eid] = {
                     "employee_id": eid,
                     "employee_name": e["employee__first_name"] or e["employee__username"],
+                    "employee_username": e["employee__username"],
                     "department_name": e["department__name"] or "",
                     "total_hours": 0,
                     "project_count": 0,
@@ -261,16 +262,14 @@ class DashboardView(APIView):
     # Project view
     # ------------------------------------------------------------------
     def _get_project_view(self, qs):
-        """Group: project → employee → work_type"""
+        """Group: project → work_type → employee → entries with detail"""
         qs = qs.exclude(report__dingtalk_report_id__startswith="demo_report_")
-        entries = qs.values(
+        entries = qs.select_related("employee", "project").values(
             "project_id", "project__name", "project__code",
+            "department_id", "department__name",
             "employee_id", "employee__first_name", "employee__username",
-            "department__name",
-            "task_type",
-        ).annotate(
-            hours=Sum("hours"), entry_count=Count("id"),
-        ).order_by("project_id", "-hours")
+            "task_type", "date", "hours", "task_description",
+        ).order_by("project_id", "task_type", "employee_id", "-hours")
 
         proj_map = {}
         for e in entries:
@@ -284,57 +283,96 @@ class DashboardView(APIView):
                     "project_name": e["project__name"] or "未归类",
                     "project_code": e["project__code"] or "",
                     "total_hours": 0,
-                    "employee_count": 0,
-                    "employees": [],
-                    "employee_map": {},
+                    "employee_set": set(),
+                    "department_set": set(),
+                    "work_types": [],
+                    "work_type_map": {},
+                    "type_breakdown": [],
+                    "type_breakdown_map": {},
                 }
 
             proj = proj_map[pid]
             eid = e["employee_id"]
+            did = e["department_id"]
+            hours = float(e["hours"] or 0)
+            wt_key = e["task_type"]
 
-            if eid not in proj["employee_map"]:
-                emp = {
+            proj["total_hours"] += hours
+            proj["employee_set"].add(eid)
+            if did:
+                proj["department_set"].add(did)
+
+            # --- Project-level work type aggregation ---
+            if wt_key not in proj["work_type_map"]:
+                wt = {"type": wt_key, "display": TASK_TYPE_DISPLAY.get(wt_key, wt_key), "hours": 0}
+                proj["work_types"].append(wt)
+                proj["work_type_map"][wt_key] = wt
+            proj["work_type_map"][wt_key]["hours"] += hours
+
+            # --- Type breakdown (work_type → employees → entries) ---
+            if wt_key not in proj["type_breakdown_map"]:
+                tb = {
+                    "type": wt_key,
+                    "display": TASK_TYPE_DISPLAY.get(wt_key, wt_key),
+                    "hours": 0,
+                    "employee_set": set(),
+                    "employees": [],
+                    "employee_map": {},
+                }
+                proj["type_breakdown"].append(tb)
+                proj["type_breakdown_map"][wt_key] = tb
+
+            tb = proj["type_breakdown_map"][wt_key]
+            tb["hours"] += hours
+
+            if eid not in tb["employee_set"]:
+                tb["employee_set"].add(eid)
+                emp_entry = {
                     "employee_id": eid,
                     "employee_name": e["employee__first_name"] or e["employee__username"],
+                    "employee_username": e["employee__username"],
                     "department_name": e["department__name"] or "",
                     "hours": 0,
-                    "entry_count": 0,
-                    "work_types": [],
+                    "entries": [],
                 }
-                proj["employees"].append(emp)
-                proj["employee_map"][eid] = emp
+                tb["employees"].append(emp_entry)
+                tb["employee_map"][eid] = len(tb["employees"]) - 1
 
-            emp = proj["employee_map"][eid]
-            emp["hours"] += float(e["hours"] or 0)
-            emp["entry_count"] += e["entry_count"]
-            proj["total_hours"] += float(e["hours"] or 0)
-
-            emp["work_types"].append({
-                "type": e["task_type"],
-                "display": TASK_TYPE_DISPLAY.get(e["task_type"], e["task_type"]),
-                "hours": float(e["hours"] or 0),
+            emp_idx = tb["employee_map"][eid]
+            tb["employees"][emp_idx]["hours"] += hours
+            tb["employees"][emp_idx]["entries"].append({
+                "date": e["date"].isoformat() if hasattr(e["date"], "isoformat") else str(e["date"]),
+                "hours": hours,
+                "task_description": e["task_description"] or "",
             })
 
-        # Clean up and merge work types per employee
+        # Clean up and finalize
         for proj in proj_map.values():
-            proj["employee_count"] = len(proj["employees"])
-            del proj["employee_map"]
-            # Merge duplicate work_types for each employee
-            for emp in proj["employees"]:
-                merged = {}
-                for wt in emp["work_types"]:
-                    key = wt["type"]
-                    if key in merged:
-                        merged[key]["hours"] += wt["hours"]
-                    else:
-                        merged[key] = wt
-                emp["work_types"] = sorted(merged.values(), key=lambda x: x["hours"], reverse=True)
+            proj["total_hours"] = round(proj["total_hours"], 1)
+            proj["employee_count"] = len(proj["employee_set"])
+            proj["department_count"] = len(proj["department_set"])
+            del proj["employee_set"], proj["department_set"], proj["work_type_map"]
+
+            proj["work_types"] = sorted(proj["work_types"], key=lambda w: w["hours"], reverse=True)
+            for wt in proj["work_types"]:
+                wt["hours"] = round(wt["hours"], 1)
+
+            del proj["type_breakdown_map"]
+            for tb in proj["type_breakdown"]:
+                tb["hours"] = round(tb["hours"], 1)
+                tb["employee_count"] = len(tb["employee_set"])
+                del tb["employee_set"], tb["employee_map"]
+                for emp in tb["employees"]:
+                    emp["hours"] = round(emp["hours"], 1)
+                    emp["entries"].sort(key=lambda x: x["date"], reverse=True)
+                tb["employees"].sort(key=lambda x: x["hours"], reverse=True)
+            proj["type_breakdown"].sort(key=lambda x: x["hours"], reverse=True)
 
         projects = sorted(proj_map.values(), key=lambda x: x["total_hours"], reverse=True)
-        total_hours = sum(p["total_hours"] for p in projects)
+        total_hours = round(sum(p["total_hours"] for p in projects), 1)
 
         return {
-            "total_hours": round(total_hours, 1),
+            "total_hours": total_hours,
             "project_count": len(projects),
             "projects": projects,
         }
@@ -392,6 +430,7 @@ class DashboardView(APIView):
                 emp = {
                     "employee_id": eid,
                     "employee_name": e["employee__first_name"] or e["employee__username"],
+                    "employee_username": e["employee__username"],
                     "total_hours": 0,
                     "projects": [],
                     "project_map": {},
@@ -427,6 +466,7 @@ class DashboardView(APIView):
                 "hours": hours,
                 "task_description": e["task_description"] or "",
                 "work_type": TASK_TYPE_DISPLAY.get(e["task_type"], e["task_type"]),
+                "type": e["task_type"],
             })
 
             wt_key = e["task_type"]

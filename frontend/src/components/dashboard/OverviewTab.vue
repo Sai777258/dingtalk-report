@@ -28,7 +28,29 @@ const BRASS = '#C8A45C'
 const BLUEPRINT = '#4A90A4'
 const SAGE = '#7D9B76'
 const VERMILION = '#D4695A'
-const chartColors = [BRASS, BLUEPRINT, SAGE, VERMILION, '#8B7AA0', '#D4A76A']
+const chartColors = [
+  // Brass / gold family
+  '#C8A45C', // brass
+  '#D4B87A', // pale gold
+  '#E0C78A', // champagne
+  '#B8956A', // bronze
+  // Blueprint / blue family
+  '#4A90A4', // blueprint
+  '#5EA0C0', // sky blue
+  '#6BA5B8', // light steel
+  '#58A0A8', // teal
+  // Sage / green family
+  '#7D9B76', // sage
+  '#6A9478', // forest
+  '#8EB89A', // mint
+  // Vermilion / warm family
+  '#D4695A', // vermilion
+  '#E8956E', // coral
+  '#C47A6B', // dusty rose
+  // Purple / slate family
+  '#8B7AA0', // muted purple
+  '#9B8EC4', // lavender
+]
 
 function makeTooltip() {
   return {

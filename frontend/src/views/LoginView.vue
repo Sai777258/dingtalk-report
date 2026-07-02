@@ -118,9 +118,9 @@ function handleKeyup(event) {
         <p class="hint-title">可用 Demo 账号</p>
         <div class="hint-grid">
           <span class="hint-chip">admin</span>
-          <span class="hint-chip">executive</span>
-          <span class="hint-chip">dept_mgr</span>
-          <span class="hint-chip">prod_mgr</span>
+          <span class="hint-chip">dept_mgr_l1</span>
+          <span class="hint-chip">dept_mgr_l2</span>
+          <span class="hint-chip">proj_mgr</span>
           <span class="hint-chip">employee</span>
         </div>
         <p class="hint-password">密码均为 <code>admin123</code></p>

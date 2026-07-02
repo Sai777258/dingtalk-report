@@ -1,19 +1,37 @@
 <script setup>
 /**
- * EmployeeTab — per-employee view: projects, work types, hours.
+ * EmployeeTab — per-employee view with two-panel layout.
  *
- * Shows a searchable table of employees with expandable rows
- * that reveal each employee's project breakdown.
+ * Left panel:  searchable employee list (name, department, hours, project count)
+ * Right panel: selected employee detail:
+ *              - EmployeeSummary (KPI cards + work type distribution)
+ *              - Project breakdown table with expandable work type rows
+ *              - "View reports" drawer via EmployeeReportDrawer
  */
 import { ref, computed } from 'vue'
 import { getDashboardByView } from '@/api/dashboard'
+import { typeTagStyle } from '@/utils/typeColors'
+import EmployeeSummary from '@/components/dashboard/EmployeeSummary.vue'
+import EmployeeReportDrawer from '@/components/dashboard/EmployeeReportDrawer.vue'
 
 const loading = ref(true)
 const error = ref('')
 const data = ref(null)
+const selectedEmployeeId = ref(null)
 const search = ref('')
 
-// Load data
+// Report drawer
+const reportDrawerVisible = ref(false)
+const reportDrawerEmployee = ref({ username: '', name: '' })
+
+function openReportDrawer(emp) {
+  reportDrawerEmployee.value = {
+    username: emp.employee_username,
+    name: emp.employee_name,
+  }
+  reportDrawerVisible.value = true
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -38,21 +56,18 @@ const employees = computed(() => {
   )
 })
 
-// Work type colour tags
-const typeColors = {
-  development: '#C8A45C',
-  testing: '#4A90A4',
-  meeting: '#7D9B76',
-  documentation: '#8B7AA0',
-  design: '#D4695A',
-  other: 'rgba(255,255,255,0.3)',
+const selectedEmployee = computed(() => {
+  if (!selectedEmployeeId.value || !data.value?.employees) return null
+  return data.value.employees.find(e => e.employee_id === selectedEmployeeId.value) || null
+})
+
+function handleEmployeeClick(row) {
+  selectedEmployeeId.value = row.employee_id
 }
 
-function typeTagStyle(type) {
-  return {
-    background: (typeColors[type] || typeColors.other) + '22',
-    borderColor: typeColors[type] || typeColors.other,
-    color: typeColors[type] || typeColors.other,
+function autoSelect() {
+  if (employees.value.length && !selectedEmployeeId.value) {
+    selectedEmployeeId.value = employees.value[0].employee_id
   }
 }
 
@@ -61,20 +76,16 @@ load()
 
 <template>
   <div class="employee-tab">
-    <!-- Error -->
     <div v-if="error" class="error-state">
       <p>{{ error }}</p>
       <el-button size="small" @click="load">重试</el-button>
     </div>
 
-    <!-- Loading -->
     <div v-else-if="loading" class="loading-state">
       <p>加载中…</p>
     </div>
 
-    <!-- Content -->
     <template v-else-if="data">
-      <!-- Header -->
       <div class="tab-header">
         <h3 class="tab-title">
           员工工时概览
@@ -85,61 +96,118 @@ load()
           placeholder="搜索员工姓名或部门…"
           clearable
           size="small"
-          style="width: 260px"
-          class="search-input"
+          style="width: 240px"
         />
       </div>
 
-      <!-- Employee table -->
-      <el-table
-        :data="employees"
-        row-key="employee_id"
-        size="small"
-        style="width: 100%"
-      >
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div class="expand-content">
-              <h4 class="expand-title">
-                {{ row.employee_name }} 参与的项目
-                <span class="expand-count">{{ row.project_count }} 个项目</span>
-              </h4>
-              <div class="project-grid">
-                <div
-                  v-for="proj in row.projects"
-                  :key="proj.project_id"
-                  class="project-card"
-                >
-                  <div class="proj-header">
-                    <span class="proj-name">{{ proj.project_name }}</span>
-                    <span class="proj-code" v-if="proj.project_code">{{ proj.project_code }}</span>
-                  </div>
-                  <div class="proj-hours">
-                    <span class="proj-hours-value">{{ proj.total_hours }}h</span>
-                    <span class="proj-entries">{{ proj.entry_count }} 条</span>
-                  </div>
-                  <div class="work-types">
-                    <span
-                      v-for="wt in proj.work_types"
-                      :key="wt.type"
-                      class="type-tag"
-                      :style="typeTagStyle(wt.type)"
-                    >
-                      {{ wt.display }} {{ wt.hours }}h
-                    </span>
-                  </div>
-                </div>
-                <div v-if="!row.projects.length" class="empty-hint">暂无项目</div>
+      <div class="employee-layout">
+        <!-- Left: employee list -->
+        <div class="employee-list-panel">
+          <el-table
+            :data="employees"
+            row-key="employee_id"
+            highlight-current-row
+            size="small"
+            style="width: 100%"
+            @row-click="handleEmployeeClick"
+            @current-change="autoSelect"
+          >
+            <el-table-column prop="employee_name" label="姓名" min-width="90" show-overflow-tooltip />
+            <el-table-column prop="department_name" label="部门" min-width="100" show-overflow-tooltip />
+            <el-table-column prop="total_hours" label="工时" width="65" sortable />
+            <el-table-column prop="project_count" label="项目" width="55" sortable />
+          </el-table>
+        </div>
+
+        <!-- Right: selected employee detail -->
+        <div class="employee-detail-panel">
+          <template v-if="selectedEmployee">
+            <!-- Employee header -->
+            <div class="detail-header">
+              <div class="detail-header-left">
+                <h4 class="detail-title">
+                  {{ selectedEmployee.employee_name }}
+                  <span class="detail-dept">{{ selectedEmployee.department_name }}</span>
+                </h4>
+                <span class="detail-summary">{{ selectedEmployee.total_hours }}h</span>
               </div>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                @click="openReportDrawer(selectedEmployee)"
+              >
+                查看日志
+              </el-button>
+            </div>
+
+            <!-- KPI cards + work type distribution -->
+            <EmployeeSummary :employee="selectedEmployee" />
+
+            <!-- Project breakdown table -->
+            <div class="breakdown-section" v-if="selectedEmployee.projects?.length">
+              <h5 class="section-label">按项目明细</h5>
+              <el-table
+                :data="selectedEmployee.projects"
+                row-key="project_id"
+                :key="selectedEmployeeId"
+                size="small"
+                style="width: 100%"
+              >
+                <el-table-column type="expand">
+                  <template #default="{ row: projRow }">
+                    <div class="expand-content">
+                      <h4 class="expand-title">
+                        {{ projRow.project_name }} 工作类型
+                        <span class="expand-count">{{ projRow.work_types?.length || 0 }} 种</span>
+                      </h4>
+                      <div class="work-type-list">
+                        <div
+                          v-for="wt in projRow.work_types"
+                          :key="wt.type"
+                          class="work-type-row"
+                        >
+                          <span class="type-tag" :style="typeTagStyle(wt.type)">{{ wt.display }}</span>
+                          <span class="wt-hours">{{ wt.hours }}h</span>
+                        </div>
+                      </div>
+                      <div v-if="!projRow.work_types?.length" class="empty-hint">暂无工作类型数据</div>
+                    </div>
+                  </template>
+                </el-table-column>
+
+                <el-table-column label="项目名" min-width="140">
+                  <template #default="{ row }">
+                    <span class="proj-name">{{ row.project_name }}</span>
+                    <span class="proj-code" v-if="row.project_code">{{ row.project_code }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="total_hours" label="工时 (h)" width="90" sortable />
+                <el-table-column label="工作类型" width="80">
+                  <template #default="{ row }">
+                    <span class="wt-count">{{ row.work_types?.length || 0 }} 种</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+
+            <div v-else class="empty-hint" style="padding: var(--space-6);">
+              该员工暂无项目数据
             </div>
           </template>
-        </el-table-column>
 
-        <el-table-column prop="employee_name" label="姓名" min-width="100" sortable />
-        <el-table-column prop="department_name" label="部门" min-width="120" />
-        <el-table-column prop="total_hours" label="总工时 (h)" width="110" sortable />
-        <el-table-column prop="project_count" label="项目数" width="80" sortable />
-      </el-table>
+          <div v-else class="empty-hint" style="padding: var(--space-10); text-align: center;">
+            请选择左侧员工
+          </div>
+        </div>
+      </div>
+
+      <!-- Employee report drawer -->
+      <EmployeeReportDrawer
+        v-model="reportDrawerVisible"
+        :employee-username="reportDrawerEmployee.username"
+        :employee-name="reportDrawerEmployee.name"
+      />
     </template>
   </div>
 </template>
@@ -183,9 +251,78 @@ load()
   font-size: var(--text-xs);
 }
 
-/* Expand row */
+/* ---- Layout ---- */
+.employee-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 400px;
+}
+
+.employee-list-panel {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  padding: var(--space-2);
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+.employee-detail-panel {
+  padding: var(--space-4) var(--space-5);
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+/* ---- Detail header ---- */
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.detail-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.detail-title {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+}
+
+.detail-dept {
+  font-size: var(--text-xs);
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.35);
+  margin-left: var(--space-2);
+}
+
+.detail-summary {
+  font-weight: 300;
+  color: var(--brass);
+  font-size: var(--text-xs);
+}
+
+/* ---- Section ---- */
+.breakdown-section {
+  margin-top: var(--space-2);
+}
+
+.section-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.5px;
+  margin: 0 0 var(--space-2);
+  text-transform: uppercase;
+}
+
+/* ---- Expand content ---- */
 .expand-content {
-  padding: var(--space-4) var(--space-6) var(--space-5);
+  padding: var(--space-4) var(--space-5);
   background: rgba(0, 0, 0, 0.15);
 }
 
@@ -203,26 +340,26 @@ load()
   margin-left: var(--space-2);
 }
 
-.project-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-3);
+.work-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.project-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-}
-
-.proj-header {
+.work-type-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
 }
 
+.wt-hours {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--brass);
+}
+
+/* ---- Project name + code ---- */
 .proj-name {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.85);
@@ -233,33 +370,15 @@ load()
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: rgba(255, 255, 255, 0.3);
+  margin-left: var(--space-2);
 }
 
-.proj-hours {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.proj-hours-value {
-  font-family: var(--font-mono);
-  font-size: var(--text-xl);
-  font-weight: 300;
-  color: var(--brass);
-}
-
-.proj-entries {
+.wt-count {
   font-size: var(--text-xs);
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.4);
 }
 
-.work-types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
+/* ---- Tags ---- */
 .type-tag {
   display: inline-block;
   padding: 1px 6px;
@@ -271,7 +390,6 @@ load()
 .empty-hint {
   color: rgba(255, 255, 255, 0.2);
   font-size: var(--text-sm);
-  padding: var(--space-3);
 }
 
 :deep(.el-table th.el-table__cell) {
@@ -280,7 +398,7 @@ load()
 }
 </style>
 
-<!-- Non-scoped: kill ALL table hover, focus, and highlight effects -->
+<!-- Non-scoped: dark theme table overrides -->
 <style>
 /* ---- CSS variables ---- */
 .employee-tab .el-table {
@@ -295,7 +413,7 @@ load()
   --el-table-expanded-cell-bg-color: transparent;
 }
 
-/* ---- No hover background (JS classes + CSS pseudo) ---- */
+/* ---- No hover background ---- */
 .employee-tab .el-table__body tr.hover-row > td.el-table__cell,
 .employee-tab .el-table__body tr.hover-row.el-table__row--striped > td.el-table__cell,
 .employee-tab .el-table__body tr.hover-row.current-row > td.el-table__cell,
@@ -305,7 +423,7 @@ load()
   background-color: transparent !important;
 }
 
-/* ---- Kill ALL focus outlines & box-shadows inside table ---- */
+/* ---- Kill ALL focus outlines ---- */
 .employee-tab .el-table__body *:focus,
 .employee-tab .el-table__body *:focus-visible,
 .employee-tab .el-table__header *:focus,
@@ -314,12 +432,12 @@ load()
   box-shadow: none !important;
 }
 
-/* ---- Also target the tr/td focus directly (sometimes * doesn't catch tr) ---- */
 .employee-tab .el-table__body tr,
 .employee-tab .el-table__body td,
 .employee-tab .el-table__body th {
   outline: none !important;
 }
+
 .employee-tab .el-table__body tr:focus,
 .employee-tab .el-table__body tr:focus-visible,
 .employee-tab .el-table__body td:focus,
@@ -331,5 +449,10 @@ load()
 /* ---- No bg transition ---- */
 .employee-tab .el-table__body td.el-table__cell {
   transition: none !important;
+}
+
+/* ---- Highlight current row in left panel ---- */
+.employee-tab .el-table__body tr.current-row > td.el-table__cell {
+  background-color: rgba(200, 164, 92, 0.08) !important;
 }
 </style>

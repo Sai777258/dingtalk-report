@@ -7,8 +7,11 @@
  * are still available in a collapsible "原始日志" section.
  */
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { getReports, getReportDetail } from '@/api/reports'
 import { Search, Refresh, ArrowDown } from '@element-plus/icons-vue'
+
+const auth = useAuthStore()
 
 // ---- State ----
 const loading = ref(false)
@@ -166,14 +169,16 @@ onMounted(loadReports)
         />
         <el-input
           v-model="filters.username"
-          placeholder="用户名"
+          :placeholder="auth.isEmployee ? '仅可查看自身' : '用户名'"
+          :disabled="auth.isEmployee"
           clearable
           size="default"
           class="filter-sm"
         />
         <el-input
           v-model="filters.department"
-          placeholder="部门"
+          :placeholder="auth.isEmployee ? '仅可查看自身' : '部门'"
+          :disabled="auth.isEmployee"
           clearable
           size="default"
           class="filter-sm"
