@@ -12,6 +12,10 @@ import { typeTagStyle } from '@/utils/typeColors'
 import DepartmentSummary from '@/components/dashboard/DepartmentSummary.vue'
 import EmployeeReportDrawer from '@/components/dashboard/EmployeeReportDrawer.vue'
 
+const props = defineProps({
+  variant: { type: String, default: 'classic' },
+})
+
 const loading = ref(true)
 const error = ref('')
 const data = ref(null)
@@ -34,6 +38,7 @@ async function load() {
   error.value = ''
   try {
     data.value = await getDashboardByView('department')
+    autoSelect()
   } catch (e) {
     error.value = e.response?.data?.detail || '加载部门数据失败'
   } finally {
@@ -74,6 +79,22 @@ function findDept(departments, id) {
   return null
 }
 
+// Aggregate work types across all projects for an employee
+function aggregateWorkTypes(employee) {
+  const map = {}
+  if (!employee.projects) return []
+  employee.projects.forEach((p) => {
+    if (!p.work_types) return
+    p.work_types.forEach((wt) => {
+      if (!map[wt.type]) {
+        map[wt.type] = { type: wt.type, display: wt.display, hours: 0 }
+      }
+      map[wt.type].hours += wt.hours
+    })
+  })
+  return Object.values(map).sort((a, b) => b.hours - a.hours)
+}
+
 function handleNodeClick(node) {
   activeDeptId.value = node.id
 }
@@ -89,7 +110,7 @@ load()
 </script>
 
 <template>
-  <div class="dept-tab">
+  <div :class="['dept-tab', `dept-tab--${props.variant}`]">
     <div v-if="error" class="error-state">
       <p>{{ error }}</p>
       <el-button size="small" @click="load">重试</el-button>
@@ -143,6 +164,7 @@ load()
             <DepartmentSummary
               :employees="selectedDept.employees"
               :total-hours="selectedDept.total_hours"
+              :variant="props.variant"
             />
 
             <!-- 📋 Employee detail table -->
@@ -208,8 +230,34 @@ load()
                 </el-table-column>
 
                 <el-table-column prop="employee_name" label="姓名" min-width="100" sortable />
+                <el-table-column label="参与项目" width="150">
+                  <template #default="{ row }">
+                    <div class="proj-inline" v-if="row.projects?.length">
+                      <span
+                        v-for="p in row.projects"
+                        :key="p.project_id"
+                        class="proj-tag-sm"
+                      >{{ p.project_name }}</span>
+                    </div>
+                    <span v-else class="no-wt">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="工作类型" width="170">
+                  <template #default="{ row }">
+                    <div class="wt-inline" v-if="aggregateWorkTypes(row).length">
+                      <span
+                        v-for="wt in aggregateWorkTypes(row)"
+                        :key="wt.type"
+                        class="type-tag-sm"
+                        :style="typeTagStyle(wt.type)"
+                      >{{ wt.display }} {{ wt.hours }}h</span>
+                    </div>
+                    <span v-else class="no-wt">—</span>
+                  </template>
+                </el-table-column>
                 <el-table-column prop="total_hours" label="总工时 (h)" width="100" sortable />
-                <el-table-column label="项目数" width="80">
+                <el-table-column label="项目数" width="80" sortable
+                  :sort-method="(a, b) => (a.projects?.length || 0) - (b.projects?.length || 0)">
                   <template #default="{ row }">{{ row.projects?.length || 0 }}</template>
                 </el-table-column>
                 <el-table-column label="操作" width="85" fixed="right">
@@ -243,6 +291,7 @@ load()
         v-model="reportDrawerVisible"
         :employee-username="reportDrawerEmployee.username"
         :employee-name="reportDrawerEmployee.name"
+        :variant="props.variant"
       />
     </template>
   </div>
@@ -431,6 +480,45 @@ load()
   border: 1px solid;
 }
 
+/* Inline work type tags in employee table */
+.wt-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  line-height: 1.5;
+}
+
+.proj-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  line-height: 1.5;
+}
+
+.proj-tag-sm {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 10px;
+  color: var(--blueprint);
+  border: 1px solid rgba(74, 144, 164, 0.35);
+  white-space: nowrap;
+  background: rgba(74, 144, 164, 0.08);
+}
+
+.type-tag-sm {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 10px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.no-wt {
+  color: rgba(255, 255, 255, 0.2);
+}
+
 /* Entries */
 .dept-entries {
   margin-top: var(--space-2);
@@ -484,6 +572,116 @@ load()
   font-size: var(--text-sm);
 }
 
+/* ---- Hisky light clinical skin ---- */
+.dept-tab--hisky {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #15343d;
+}
+
+.dept-tab--hisky .tab-header {
+  padding: 0 0 var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom-color: rgba(12, 94, 108, 0.1);
+}
+
+.dept-tab--hisky .tab-title,
+.dept-tab--hisky .detail-title,
+.dept-tab--hisky .section-label,
+.dept-tab--hisky .expand-title,
+.dept-tab--hisky .proj-name {
+  font-family: "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #12313a;
+}
+
+.dept-tab--hisky .tab-title,
+.dept-tab--hisky .detail-title {
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.dept-tab--hisky .tab-summary,
+.dept-tab--hisky .detail-summary,
+.dept-tab--hisky .expand-count,
+.dept-tab--hisky .proj-hours,
+.dept-tab--hisky .entry-hours {
+  color: #0b8491;
+}
+
+.dept-tab--hisky .dept-layout {
+  border: 1px solid rgba(12, 94, 108, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 28px rgba(7, 43, 52, 0.055);
+  overflow: hidden;
+}
+
+.dept-tab--hisky .dept-tree-panel,
+.dept-tab--hisky .dept-detail-panel,
+.dept-tab--hisky .expand-content,
+.dept-tab--hisky .project-card {
+  background: #ffffff;
+}
+
+.dept-tab--hisky .dept-tree-panel {
+  border-right-color: rgba(12, 94, 108, 0.1);
+}
+
+.dept-tab--hisky .tree-label {
+  color: #12313a;
+  font-weight: 600;
+}
+
+.dept-tab--hisky .tree-meta,
+.dept-tab--hisky .entry-date {
+  color: rgba(11, 132, 145, 0.72);
+}
+
+.dept-tab--hisky .section-label {
+  color: rgba(21, 52, 61, 0.5);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.dept-tab--hisky .expand-content {
+  border: 1px solid rgba(12, 94, 108, 0.08);
+  border-radius: var(--radius-sm);
+}
+
+.dept-tab--hisky .project-card {
+  border-color: rgba(12, 94, 108, 0.1);
+  box-shadow: 0 8px 18px rgba(7, 43, 52, 0.045);
+}
+
+.dept-tab--hisky .proj-tag-sm {
+  color: #1f5360;
+  border-color: rgba(11, 132, 145, 0.24);
+  background: rgba(24, 167, 168, 0.08);
+}
+
+.dept-tab--hisky .type-tag,
+.dept-tab--hisky .type-tag-sm,
+.dept-tab--hisky .entry-type-tag {
+  background: rgba(24, 167, 168, 0.09) !important;
+  border-color: rgba(11, 132, 145, 0.26) !important;
+  color: #1f5360 !important;
+  font-weight: 600;
+}
+
+.dept-tab--hisky .dept-entry {
+  border-bottom-color: rgba(12, 94, 108, 0.06);
+}
+
+.dept-tab--hisky .entry-desc {
+  color: rgba(21, 52, 61, 0.72);
+}
+
+.dept-tab--hisky .no-wt,
+.dept-tab--hisky .empty-hint {
+  color: rgba(21, 52, 61, 0.38);
+}
+
 :deep(.el-table th.el-table__cell) {
   font-weight: 500;
   font-size: var(--text-xs);
@@ -497,9 +695,25 @@ load()
   background: transparent !important;
 }
 
+.dept-tab--hisky .el-tree {
+  --el-tree-text-color: #15343d;
+  --el-tree-node-hover-bg-color: rgba(24, 167, 168, 0.07);
+  background: #ffffff !important;
+  color: #15343d !important;
+}
+
+.dept-tab--hisky .el-tree-node__content {
+  color: #15343d !important;
+}
+
 /* Current/selected node — use brass tint instead of light primary */
 .dept-tab .el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
   background-color: rgba(200, 164, 92, 0.08) !important;
+}
+
+.dept-tab--hisky .el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
+  background-color: rgba(24, 167, 168, 0.1) !important;
+  color: #0b8491 !important;
 }
 
 /* Focus ring on a node content — remove */
@@ -529,6 +743,36 @@ load()
   --el-table-expanded-cell-bg-color: transparent;
 }
 
+.dept-tab--hisky .el-table {
+  --el-table-bg-color: #ffffff;
+  --el-table-tr-bg-color: #ffffff;
+  --el-table-header-bg-color: rgba(12, 94, 108, 0.055);
+  --el-table-border-color: rgba(12, 94, 108, 0.08);
+  --el-table-text-color: #15343d;
+  --el-table-header-text-color: rgba(21, 52, 61, 0.58);
+  --el-table-row-hover-bg-color: rgba(24, 167, 168, 0.07);
+  --el-table-current-row-bg-color: rgba(24, 167, 168, 0.09);
+  --el-table-expanded-cell-bg-color: #f8fbfb;
+  background: #ffffff !important;
+  color: #15343d !important;
+}
+
+.dept-tab--hisky .el-table th.el-table__cell {
+  background: rgba(12, 94, 108, 0.055) !important;
+  color: rgba(21, 52, 61, 0.62) !important;
+}
+
+.dept-tab--hisky .el-table td.el-table__cell {
+  background: #ffffff !important;
+  border-bottom-color: rgba(12, 94, 108, 0.08);
+  color: #15343d !important;
+}
+
+.dept-tab--hisky .el-table__expanded-cell,
+.dept-tab--hisky .el-table__expanded-cell[class*=cell] {
+  background: #f8fbfb !important;
+}
+
 /* No hover background */
 .dept-tab .el-table__body tr.hover-row > td.el-table__cell,
 .dept-tab .el-table__body tr.hover-row.el-table__row--striped > td.el-table__cell,
@@ -537,6 +781,15 @@ load()
 .dept-tab .el-table__body tr:hover > td.el-table__cell,
 .dept-tab .el-table__body tr.current-row > td.el-table__cell {
   background-color: transparent !important;
+}
+
+.dept-tab--hisky .el-table__body tr.hover-row > td.el-table__cell,
+.dept-tab--hisky .el-table__body tr.hover-row.el-table__row--striped > td.el-table__cell,
+.dept-tab--hisky .el-table__body tr.hover-row.current-row > td.el-table__cell,
+.dept-tab--hisky .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell,
+.dept-tab--hisky .el-table__body tr:hover > td.el-table__cell,
+.dept-tab--hisky .el-table__body tr.current-row > td.el-table__cell {
+  background-color: rgba(24, 167, 168, 0.07) !important;
 }
 
 /* Kill focus outlines inside table */

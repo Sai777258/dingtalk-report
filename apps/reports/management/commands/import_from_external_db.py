@@ -16,6 +16,7 @@ Usage:
     python manage.py import_from_external_db --start-date 2026-06-01
 """
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -71,23 +72,7 @@ LOG_ITEMS_QUERY = """
     ORDER BY sort_order, id
 """
 
-# Map external work_type values to our task_type choices
-WORK_TYPE_MAP = {
-    "产品开发": "development",
-    "开发": "development",
-    "测试": "testing",
-    "测试调试": "testing",
-    "调试": "testing",
-    "会议": "meeting",
-    "文档": "documentation",
-    "设计": "design",
-    "运维": "other",
-    "技术支持": "other",
-    "需求": "documentation",
-    "评审": "meeting",
-    "沟通": "meeting",
-    "其他": "other",
-}
+DEFAULT_WORK_TYPE = "other"
 
 
 class Command(BaseCommand):
@@ -127,6 +112,11 @@ class Command(BaseCommand):
             action="store_true",
             help="清理本地已存在但外部 MySQL 中已删除的 ext_daily_* 过时记录",
         )
+        parser.add_argument(
+            "--refresh-existing",
+            action="store_true",
+            help="兼容旧参数：当前已默认更新已有 ext_daily_* 日志和 log_items",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
@@ -134,6 +124,7 @@ class Command(BaseCommand):
         sync_type = options["sync_type"]
         skip_template = options["skip_template"]
         clean_stale = options["clean_stale"]
+        refresh_existing = options["refresh_existing"]
 
         label = "试运行" if dry_run else "正式导入"
         self.stdout.write(self.style.NOTICE(f"[*] 外部数据库导入 ({label}模式, {sync_type})..."))
@@ -184,6 +175,7 @@ class Command(BaseCommand):
                 "date_from": date_from, "date_to": date_to,
                 "limit": limit, "dry_run": dry_run,
                 "skip_template": skip_template,
+                "refresh_existing": refresh_existing,
             },
         )
 
@@ -249,9 +241,11 @@ class Command(BaseCommand):
         template = resolve_template("日报")
 
         records_fetched = 0
-        records_imported = 0
-        records_skipped = 0
-        total_entries = 0
+        reports_created = 0
+        reports_updated = 0
+        entries_created = 0
+        entries_updated = 0
+        entries_deleted = 0
         error_count = 0
 
         try:
@@ -265,18 +259,18 @@ class Command(BaseCommand):
                     # Build a dingtalk_report_id: "ext_daily_{id}"
                     report_id = f"ext_daily_{log_id}"
 
-                    # Dedup
-                    if WorkReport.objects.filter(dingtalk_report_id=report_id).exists():
-                        records_skipped += 1
-                        continue
-
                     try:
                         with transaction.atomic():
-                            entry_n = self._import_one_log(
-                                dl_row, report_id, template, projects_cache, conn
+                            result = self._sync_one_log(
+                                dl_row, report_id, template, projects_cache, conn, sync_log
                             )
-                            total_entries += entry_n
-                        records_imported += 1
+                            if result["report_created"]:
+                                reports_created += 1
+                            else:
+                                reports_updated += 1
+                            entries_created += result["entries_created"]
+                            entries_updated += result["entries_updated"]
+                            entries_deleted += result["entries_deleted"]
                     except Exception as e:
                         error_count += 1
                         self.stdout.write(self.style.ERROR(
@@ -288,7 +282,7 @@ class Command(BaseCommand):
                     if records_fetched % 20 == 0:
                         self.stdout.write(
                             f"  进度: {records_fetched}/{total} "
-                            f"(导入 {records_imported}, 跳过 {records_skipped})"
+                            f"(新建 {reports_created}, 更新 {reports_updated})"
                         )
 
         finally:
@@ -308,11 +302,15 @@ class Command(BaseCommand):
         # ---- Finalize SyncLog ----
         sync_log.status = "success" if error_count == 0 else "partial"
         sync_log.records_fetched = records_fetched
-        sync_log.records_parsed = records_imported
-        sync_log.records_skipped = records_skipped
+        sync_log.records_parsed = reports_created + reports_updated
+        sync_log.records_skipped = 0
         sync_log.completed_at = timezone.now()
         sync_log.response_summary = {
-            "work_entries_created": total_entries,
+            "reports_created": reports_created,
+            "reports_updated": reports_updated,
+            "work_entries_created": entries_created,
+            "work_entries_updated": entries_updated,
+            "work_entries_deleted": entries_deleted,
             "error_count": error_count,
         }
         if clean_stale:
@@ -322,8 +320,9 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"\n[OK] 导入完成! "
-            f"日志: {records_imported} 条, 工时条目: {total_entries} 条, "
-            f"跳过: {records_skipped}, 错误: {error_count}"
+            f"日志新建: {reports_created} 条, 更新: {reports_updated} 条, "
+            f"工时新建: {entries_created} 条, 更新: {entries_updated} 条, 删除: {entries_deleted} 条, "
+            f"错误: {error_count}"
         ))
         if clean_stale and stale_result["deleted"]:
             self.stdout.write(
@@ -418,9 +417,11 @@ class Command(BaseCommand):
         }
 
     # ------------------------------------------------------------------
-    def _import_one_log(self, dl_row, report_id, template, projects_cache, conn):
-        """Import one daily_log + its log_items. Returns entry count."""
+    def _sync_one_log(self, dl_row, report_id, template, projects_cache, conn, sync_log):
+        """Mirror one daily_log and its log_items into local tables."""
         from apps.projects.models import Project
+
+        log_id = dl_row["log_id"]
 
         # --- Resolve user ---
         dt_uid = dl_row.get("dingtalk_user_id")
@@ -454,37 +455,58 @@ class Command(BaseCommand):
         # Also store original raw_content if present
         if dl_row.get("raw_content"):
             raw_contents["_raw_text"] = dl_row["raw_content"]
+        raw_contents["_source_log_id"] = log_id
 
-        # --- Create WorkReport ---
-        report = WorkReport.objects.create(
-            dingtalk_report_id=report_id,
-            template=template,
-            creator=user,
-            department=department or user.department,
-            report_date=report_date or date.today(),
-            create_time=create_time,
-            raw_contents=raw_contents,
-            status="submitted",
-        )
+        # --- Create or update WorkReport ---
+        report = self._get_existing_report(log_id, report_id)
+        report_created = report is None
+        report_defaults = {
+            "dingtalk_report_id": report_id,
+            "source_log_id": log_id,
+            "template": template,
+            "creator": user,
+            "department": department or user.department,
+            "report_date": report_date or date.today(),
+            "create_time": create_time,
+            "raw_contents": raw_contents,
+            "status": "submitted",
+            "sync_log": sync_log,
+        }
 
-        # --- Create ReportContent ---
-        ReportContent.objects.create(
+        if report is None:
+            report = WorkReport.objects.create(**report_defaults)
+        else:
+            for field, value in report_defaults.items():
+                setattr(report, field, value)
+            report.save(update_fields=[*report_defaults.keys()])
+
+        # --- Create or update ReportContent ---
+        ReportContent.objects.update_or_create(
             report=report,
             field_key="今日完成工作",
-            field_value=completed_text,
-            order=1,
+            defaults={
+                "field_value": completed_text,
+                "order": 1,
+            },
         )
 
-        # --- Create WorkEntry per log_item ---
-        entry_count = 0
+        # --- Create, update, or delete WorkEntry rows per log_item ---
+        entries_created = 0
+        entries_updated = 0
+        source_item_ids = []
+
         for item in items:
             hours = float(item["work_hours"] or 0)
             work_content = item["work_content"] or ""
             project_name = item["project_name"] or ""
             work_type_raw = item["work_type"] or ""
+            source_item_id = item.get("item_id")
 
             if hours <= 0 and not work_content:
                 continue
+
+            if source_item_id is not None:
+                source_item_ids.append(source_item_id)
 
             # Project matching
             project = None
@@ -499,26 +521,79 @@ class Command(BaseCommand):
                     # Add to cache so subsequent items find it
                     projects_cache.append(project)
 
-            # Map work_type
-            task_type = WORK_TYPE_MAP.get(work_type_raw, "other")
+            # Keep the source work type so dashboards reflect MySQL log_items
+            # instead of collapsing external categories into a small local enum.
+            task_type = _normalize_work_type(work_type_raw)
 
-            WorkEntry.objects.create(
-                report=report,
-                employee=user,
-                department=department or user.department,
-                project=project,
-                date=report_date or date.today(),
-                hours=hours,
-                task_description=work_content,
-                task_type=task_type,
-                status="completed",
-                confidence=90 if project else 80,
-                raw_text=f"[{project_name}] {work_content}" if project_name else work_content,
-                is_categorized=project is not None,
-            )
-            entry_count += 1
+            entry = self._get_existing_entry(report, source_item_id, item)
+            entry_created = entry is None
+            entry_defaults = {
+                "report": report,
+                "source_item_id": source_item_id,
+                "employee": user,
+                "department": department or user.department,
+                "project": project,
+                "date": report_date or date.today(),
+                "hours": hours,
+                "task_description": work_content,
+                "task_type": task_type,
+                "status": "completed",
+                "confidence": 90 if project else 80,
+                "raw_text": f"[{project_name}] {work_content}" if project_name else work_content,
+                "is_categorized": project is not None,
+            }
 
-        return entry_count
+            if entry is None:
+                WorkEntry.objects.create(**entry_defaults)
+                entries_created += 1
+            else:
+                for field, value in entry_defaults.items():
+                    setattr(entry, field, value)
+                entry.save(update_fields=[*entry_defaults.keys()])
+                entries_updated += 1
+
+        stale_entries = report.work_entries.all()
+        if source_item_ids:
+            stale_entries = stale_entries.exclude(source_item_id__in=source_item_ids)
+        entries_deleted = stale_entries.count()
+        if entries_deleted:
+            stale_entries.delete()
+
+        return {
+            "report_created": report_created,
+            "entries_created": entries_created,
+            "entries_updated": entries_updated,
+            "entries_deleted": entries_deleted,
+        }
+
+    def _get_existing_report(self, log_id, report_id):
+        """Find an imported report by stable source id, with legacy fallback."""
+        report = WorkReport.objects.filter(source_log_id=log_id).first()
+        if report:
+            return report
+
+        report = WorkReport.objects.filter(dingtalk_report_id=report_id).first()
+        if report:
+            report.source_log_id = log_id
+            report.save(update_fields=["source_log_id"])
+        return report
+
+    def _get_existing_entry(self, report, source_item_id, item):
+        """Find an imported entry by source item id, with legacy fallback."""
+        if source_item_id is not None:
+            entry = WorkEntry.objects.filter(source_item_id=source_item_id).first()
+            if entry:
+                return entry
+
+        entry = _find_matching_entry(
+            list(report.work_entries.filter(source_item_id__isnull=True).order_by("id")),
+            set(),
+            item,
+        )
+        if entry and source_item_id is not None:
+            entry.source_item_id = source_item_id
+            entry.save(update_fields=["source_item_id"])
+        return entry
 
     def _fetch_log_items(self, conn, log_id):
         """Fetch log_items for a given daily_log id from the external DB."""
@@ -560,6 +635,37 @@ def _parse_datetime(value):
             except ValueError:
                 continue
     return None
+
+
+def _normalize_work_type(value):
+    if isinstance(value, str):
+        value = value.strip()
+    return value or DEFAULT_WORK_TYPE
+
+
+def _find_matching_entry(entries, used_entry_ids, item):
+    item_content = (item.get("work_content") or "").strip()
+    item_hours = _to_decimal(item.get("work_hours"))
+
+    for entry in entries:
+        if entry.id in used_entry_ids:
+            continue
+        if (entry.task_description or "").strip() != item_content:
+            continue
+        if item_hours is not None and entry.hours != item_hours:
+            continue
+        return entry
+
+    return None
+
+
+def _to_decimal(value):
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _project_code(name):

@@ -16,15 +16,10 @@ const auth = useAuthStore()
 const isGuest = computed(() => route.meta.guest)
 
 const navItems = computed(() => {
-  const items = [
+  return [
     { path: '/', label: '仪表盘', icon: DataAnalysis },
     { path: '/reports', label: '工作日志', icon: Document },
   ]
-  // Admin-only: link to Django Admin for user/system management
-  if (auth.isAdmin) {
-    items.push({ path: '/admin/', label: '系统管理', icon: 'Setting', external: true })
-  }
-  return items
 })
 
 function isActive(path) {
@@ -33,10 +28,6 @@ function isActive(path) {
 }
 
 function navigate(item) {
-  if (item.external) {
-    window.open(item.path, '_blank')
-    return
-  }
   router.push(item.path)
 }
 
@@ -67,7 +58,7 @@ function handleLogout() {
           :class="{ active: isActive(item.path) }"
           @click="navigate(item)"
         >
-          <el-icon v-if="!item.external" :size="16"><component :is="item.icon" /></el-icon>
+          <el-icon :size="16"><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
         </button>
       </nav>

@@ -44,6 +44,10 @@ class WorkReport(models.Model):
     dingtalk_report_id = models.CharField(
         max_length=128, unique=True, verbose_name="钉钉报告ID",
     )
+    source_log_id = models.BigIntegerField(
+        null=True, blank=True, unique=True, db_index=True,
+        verbose_name="外部日志ID",
+    )
     template = models.ForeignKey(
         ReportTemplate, null=True, blank=True,
         on_delete=models.SET_NULL, related_name="reports",

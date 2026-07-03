@@ -34,6 +34,10 @@ class WorkEntry(models.Model):
         "reports.WorkReport", on_delete=models.CASCADE,
         related_name="work_entries", verbose_name="来源日志",
     )
+    source_item_id = models.BigIntegerField(
+        null=True, blank=True, unique=True, db_index=True,
+        verbose_name="外部条目ID",
+    )
 
     # ---- People & org (department is redundant for fast aggregation) ----
     employee = models.ForeignKey(
@@ -61,7 +65,7 @@ class WorkEntry(models.Model):
     )
     task_description = models.TextField(blank=True, verbose_name="任务描述")
     task_type = models.CharField(
-        max_length=20,
+        max_length=50,
         choices=TaskType.choices,
         default=TaskType.OTHER,
         verbose_name="任务类型",

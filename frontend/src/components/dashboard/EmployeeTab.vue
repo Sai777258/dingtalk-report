@@ -8,11 +8,16 @@
  *              - Project breakdown table with expandable work type rows
  *              - "View reports" drawer via EmployeeReportDrawer
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { getDashboardByView } from '@/api/dashboard'
 import { typeTagStyle } from '@/utils/typeColors'
 import EmployeeSummary from '@/components/dashboard/EmployeeSummary.vue'
 import EmployeeReportDrawer from '@/components/dashboard/EmployeeReportDrawer.vue'
+
+const props = defineProps({
+  focusEmployeeId: { type: [Number, String], default: null },
+  variant: { type: String, default: 'classic' },
+})
 
 const loading = ref(true)
 const error = ref('')
@@ -37,6 +42,8 @@ async function load() {
   error.value = ''
   try {
     data.value = await getDashboardByView('employee')
+    focusEmployee(props.focusEmployeeId)
+    autoSelect()
   } catch (e) {
     error.value = e.response?.data?.detail || '加载员工数据失败'
   } finally {
@@ -65,11 +72,24 @@ function handleEmployeeClick(row) {
   selectedEmployeeId.value = row.employee_id
 }
 
+function focusEmployee(employeeId) {
+  if (!employeeId || !data.value?.employees?.length) return
+  const normalizedId = Number(employeeId)
+  const target = data.value.employees.find(e => e.employee_id === normalizedId)
+  if (!target) return
+  search.value = ''
+  selectedEmployeeId.value = target.employee_id
+}
+
 function autoSelect() {
   if (employees.value.length && !selectedEmployeeId.value) {
     selectedEmployeeId.value = employees.value[0].employee_id
   }
 }
+
+watch(() => props.focusEmployeeId, (employeeId) => {
+  focusEmployee(employeeId)
+})
 
 load()
 </script>
@@ -172,6 +192,21 @@ load()
                         </div>
                       </div>
                       <div v-if="!projRow.work_types?.length" class="empty-hint">暂无工作类型数据</div>
+
+                      <div class="entry-list" v-if="projRow.entries?.length">
+                        <div
+                          v-for="entry in projRow.entries"
+                          :key="entry.id"
+                          class="entry-row"
+                        >
+                          <span class="entry-date">{{ entry.date }}</span>
+                          <span class="entry-type-tag" :style="typeTagStyle(entry.type || 'other')">
+                            {{ entry.work_type }}
+                          </span>
+                          <span class="entry-hours">{{ entry.hours }}h</span>
+                          <span class="entry-desc">{{ entry.task_description || '(无描述)' }}</span>
+                        </div>
+                      </div>
                     </div>
                   </template>
                 </el-table-column>
@@ -207,6 +242,7 @@ load()
         v-model="reportDrawerVisible"
         :employee-username="reportDrawerEmployee.username"
         :employee-name="reportDrawerEmployee.name"
+        :variant="props.variant"
       />
     </template>
   </div>
@@ -359,6 +395,56 @@ load()
   color: var(--brass);
 }
 
+/* ---- Entry rows ---- */
+.entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.entry-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.entry-date {
+  color: rgba(255, 255, 255, 0.25);
+  font-family: var(--font-mono);
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.entry-type-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.entry-hours {
+  font-family: var(--font-mono);
+  color: var(--brass);
+  width: 32px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.entry-desc {
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Project name + code ---- */
 .proj-name {
   font-weight: 500;
@@ -444,6 +530,11 @@ load()
 .employee-tab .el-table__body td:focus-visible {
   outline: none !important;
   box-shadow: none !important;
+}
+
+/* ---- Pointer cursor on clickable rows ---- */
+.employee-tab .el-table__body tr {
+  cursor: pointer;
 }
 
 /* ---- No bg transition ---- */

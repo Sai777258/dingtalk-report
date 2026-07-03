@@ -30,17 +30,27 @@ export const useAuthStore = defineStore('auth', () => {
   )
 
   // ---- Actions ----
+
+  /**
+   * Update tokens in state + localStorage.
+   * Called by the 401 interceptor after a successful refresh.
+   */
+  function setTokens(access, refresh) {
+    token.value = access
+    localStorage.setItem('access_token', access)
+    if (refresh) {
+      refreshToken.value = refresh
+      localStorage.setItem('refresh_token', refresh)
+    }
+  }
+
   async function login(username, password) {
     loading.value = true
     error.value = null
     try {
       const { data } = await demoLogin(username, password)
-      token.value = data.access
-      refreshToken.value = data.refresh
+      setTokens(data.access, data.refresh)
       user.value = data.user
-
-      localStorage.setItem('access_token', data.access)
-      localStorage.setItem('refresh_token', data.refresh)
 
       return data
     } catch (err) {
@@ -61,8 +71,9 @@ export const useAuthStore = defineStore('auth', () => {
       const { data } = await getCurrentUser()
       user.value = data
     } catch {
-      // Token expired or invalid — clear it
-      logout()
+      // The 401 response interceptor handles token refresh or logout.
+      // Only clear the user object here; do NOT call logout().
+      user.value = null
     }
   }
 
@@ -93,6 +104,7 @@ export const useAuthStore = defineStore('auth', () => {
     isProjectManager,
     isEmployee,
     isAnyManager,
+    setTokens,
     login,
     fetchUser,
     logout,

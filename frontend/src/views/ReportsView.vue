@@ -8,8 +8,10 @@
  */
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { getReports, getReportDetail } from '@/api/reports'
-import { Search, Refresh, ArrowDown } from '@element-plus/icons-vue'
+import { getReports, getReportDetail, exportReports } from '@/api/reports'
+import { typeTagStyle } from '@/utils/typeColors'
+import { Search, Refresh, ArrowDown, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const auth = useAuthStore()
 
@@ -35,22 +37,12 @@ const detailLoading = ref(false)
 const detail = ref(null)
 const showRawContents = ref(false)
 
-// ---- Work-type colour palette ----
-const typeColors = {
-  development: '#C8A45C',
-  testing: '#4A90A4',
-  meeting: '#7D9B76',
-  documentation: '#8B7AA0',
-  design: '#D4695A',
-  other: 'rgba(255,255,255,0.3)',
-}
+// Export
+const exporting = ref(false)
+const selectedRows = ref([])
 
-function typeTagStyle(type) {
-  return {
-    background: (typeColors[type] || typeColors.other) + '22',
-    borderColor: typeColors[type] || typeColors.other,
-    color: typeColors[type] || typeColors.other,
-  }
+function handleSelectionChange(rows) {
+  selectedRows.value = rows
 }
 
 // ---- Group work entries by project ----
@@ -127,6 +119,55 @@ function handleReset() {
   filters.search = ''
   page.value = 1
   loadReports()
+}
+
+function _buildExportParams() {
+  const p = {}
+  if (filters.date_from) p.date_from = filters.date_from
+  if (filters.date_to) p.date_to = filters.date_to
+  if (filters.username) p.username = filters.username
+  if (filters.department) p.department = filters.department
+  if (filters.search) p.search = filters.search
+  return p
+}
+
+function _triggerDownload(blob, prefix = '工作日志') {
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${prefix}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+}
+
+async function handleExportSelected() {
+  if (!selectedRows.value.length) return
+  exporting.value = true
+  try {
+    const ids = selectedRows.value.map(r => r.id)
+    const blob = await exportReports({ report_ids: ids })
+    _triggerDownload(blob, '工作日志_选中')
+    ElMessage.success(`已导出 ${ids.length} 条日志`)
+  } catch (e) {
+    ElMessage.error('导出失败，请重试')
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function handleExportAll() {
+  exporting.value = true
+  try {
+    const blob = await exportReports(_buildExportParams())
+    _triggerDownload(blob, '工作日志')
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败，请重试')
+  } finally {
+    exporting.value = false
+  }
 }
 
 // ---- Detail drawer ----
@@ -207,6 +248,19 @@ onMounted(loadReports)
           <el-icon><Refresh /></el-icon>
           重置
         </el-button>
+        <el-button
+          size="default"
+          :loading="exporting"
+          :disabled="selectedRows.length === 0"
+          @click="handleExportSelected"
+        >
+          <el-icon><Download /></el-icon>
+          导出选中{{ selectedRows.length ? ` (${selectedRows.length})` : '' }}
+        </el-button>
+        <el-button size="default" :loading="exporting" @click="handleExportAll">
+          <el-icon><Download /></el-icon>
+          批量导出
+        </el-button>
       </div>
     </div>
 
@@ -221,7 +275,9 @@ onMounted(loadReports)
         size="default"
         row-key="id"
         @row-click="(row) => openDetail(row.id)"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="report_date" label="日期" width="110" sortable />
         <el-table-column prop="creator_name" label="姓名" width="100" />
         <el-table-column prop="creator_username" label="用户名" width="100" />

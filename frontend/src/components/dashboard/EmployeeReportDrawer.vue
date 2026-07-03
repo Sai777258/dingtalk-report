@@ -12,14 +12,16 @@
  *   employeeName     String   Display name for drawer title
  */
 import { ref, computed, watch } from 'vue'
-import { getReports, getReportDetail } from '@/api/reports'
+import { getReports, getReportDetail, exportReports } from '@/api/reports'
 import { typeTagStyle } from '@/utils/typeColors'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
   employeeUsername: { type: String, required: true },
   employeeName: { type: String, required: true },
+  variant: { type: String, default: 'classic' },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -37,6 +39,16 @@ const detailLoading = ref(false)
 const detail = ref(null)
 const viewingReportId = ref(null)
 const showRawContents = ref(false)
+
+// Export
+const exporting = ref(false)
+const selectedRows = ref([])
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows
+}
+
+const drawerVariant = computed(() => props.variant === 'hisky' ? 'hisky' : 'classic')
 
 // ---- Derived ----
 const groupedEntries = computed(() => {
@@ -101,6 +113,45 @@ function backToList() {
   detail.value = null
 }
 
+function _triggerDownload(blob, prefix) {
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${prefix}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+}
+
+async function handleExportSelected() {
+  if (!selectedRows.value.length) return
+  exporting.value = true
+  try {
+    const ids = selectedRows.value.map(r => r.id)
+    const blob = await exportReports({ report_ids: ids })
+    _triggerDownload(blob, `${props.employeeName}_工作日志_选中`)
+    ElMessage.success(`已导出 ${ids.length} 条日志`)
+  } catch (e) {
+    ElMessage.error('导出失败，请重试')
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function handleExportAll() {
+  exporting.value = true
+  try {
+    const blob = await exportReports({ username: props.employeeUsername })
+    _triggerDownload(blob, `${props.employeeName}_工作日志`)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败，请重试')
+  } finally {
+    exporting.value = false
+  }
+}
+
 // ---- Helpers ----
 function statusTag(status) {
   return status === 'submitted' ? 'success' : 'info'
@@ -135,8 +186,9 @@ watch(() => props.modelValue, (visible) => {
     @update:model-value="emit('update:modelValue', $event)"
     :title="employeeName + ' 的工作日志'"
     size="560px"
+    :class="['emp-report-drawer', `emp-report-drawer--${drawerVariant}`]"
   >
-    <div class="emp-report-drawer-content">
+    <div :class="['emp-report-drawer-content', `emp-report-drawer-content--${drawerVariant}`]">
       <!-- =========================================================== -->
       <!-- List View                                                    -->
       <!-- =========================================================== -->
@@ -149,12 +201,32 @@ watch(() => props.modelValue, (visible) => {
         </div>
 
         <template v-else-if="reports.length">
+          <div class="drawer-toolbar">
+            <span class="toolbar-hint">共 {{ total }} 条日志</span>
+            <div class="toolbar-actions">
+              <el-button
+                size="small"
+                :loading="exporting"
+                :disabled="selectedRows.length === 0"
+                @click="handleExportSelected"
+              >
+                <el-icon><Download /></el-icon>
+                导出选中
+              </el-button>
+              <el-button size="small" :loading="exporting" @click="handleExportAll">
+                <el-icon><Download /></el-icon>
+                导出全部
+              </el-button>
+            </div>
+          </div>
           <el-table
             :data="reports"
             size="small"
             row-key="id"
             @row-click="(row) => viewDetail(row.id)"
+            @selection-change="handleSelectionChange"
           >
+            <el-table-column type="selection" width="40" />
             <el-table-column prop="report_date" label="日期" width="110" sortable />
             <el-table-column prop="entry_count" label="条目" width="60" align="center" />
             <el-table-column label="状态" width="80">
@@ -325,6 +397,23 @@ watch(() => props.modelValue, (visible) => {
   justify-content: flex-end;
   padding: var(--space-4);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.drawer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 var(--space-3);
+}
+
+.toolbar-hint {
+  font-size: var(--text-xs);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 6px;
 }
 
 :deep(.el-table th.el-table__cell) {
@@ -628,5 +717,173 @@ watch(() => props.modelValue, (visible) => {
 }
 .el-drawer__body {
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* ---- Hisky light drawer skin ---- */
+.el-drawer.emp-report-drawer--hisky {
+  background:
+    linear-gradient(180deg, #f8fbfb 0%, #eef7f5 100%) !important;
+  color: #15343d !important;
+  box-shadow: -24px 0 52px rgba(7, 43, 52, 0.16);
+}
+
+.el-drawer.emp-report-drawer--hisky .el-drawer__header {
+  margin-bottom: 0 !important;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(12, 94, 108, 0.1);
+  color: #12313a !important;
+  font-family: "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 650;
+}
+
+.el-drawer.emp-report-drawer--hisky .el-drawer__body {
+  color: #15343d !important;
+}
+
+.el-drawer.emp-report-drawer--hisky .el-drawer__close-btn {
+  color: rgba(21, 52, 61, 0.58) !important;
+}
+
+.el-drawer.emp-report-drawer--hisky .el-drawer__close-btn:hover,
+.el-drawer.emp-report-drawer--hisky .el-drawer__close-btn:focus-visible {
+  color: #0b8491 !important;
+}
+
+.emp-report-drawer-content--hisky {
+  color: #15343d;
+  font-family: "Inter", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.emp-report-drawer-content--hisky .back-btn {
+  color: #0b8491;
+  font-weight: 600;
+}
+
+.emp-report-drawer-content--hisky .drawer-loading,
+.emp-report-drawer-content--hisky .drawer-empty {
+  color: rgba(21, 52, 61, 0.44);
+}
+
+.emp-report-drawer-content--hisky .drawer-error {
+  color: #c9524c;
+}
+
+.emp-report-drawer-content--hisky .drawer-pagination {
+  border-top-color: rgba(12, 94, 108, 0.1);
+}
+
+.emp-report-drawer-content--hisky .toolbar-hint {
+  color: rgba(21, 52, 61, 0.46);
+}
+
+.emp-report-drawer-content--hisky .el-pagination {
+  --el-text-color-primary: #15343d;
+  --el-text-color-regular: rgba(21, 52, 61, 0.68);
+  --el-color-primary: #0b8491;
+  --el-fill-color: rgba(12, 94, 108, 0.06);
+  --el-fill-color-light: rgba(12, 94, 108, 0.08);
+}
+
+.emp-report-drawer-content--hisky .el-table {
+  --el-table-bg-color: #ffffff;
+  --el-table-tr-bg-color: #ffffff;
+  --el-table-header-bg-color: rgba(12, 94, 108, 0.055);
+  --el-table-border-color: rgba(12, 94, 108, 0.08);
+  --el-table-text-color: #15343d;
+  --el-table-header-text-color: rgba(21, 52, 61, 0.58);
+  --el-table-row-hover-bg-color: rgba(24, 167, 168, 0.07);
+  --el-table-current-row-bg-color: rgba(24, 167, 168, 0.09);
+  background: #ffffff !important;
+  color: #15343d !important;
+}
+
+.emp-report-drawer-content--hisky .el-table th.el-table__cell {
+  background: rgba(12, 94, 108, 0.055) !important;
+  color: rgba(21, 52, 61, 0.62) !important;
+}
+
+.emp-report-drawer-content--hisky .el-table td.el-table__cell {
+  background: #ffffff !important;
+  border-bottom-color: rgba(12, 94, 108, 0.08);
+  color: #15343d !important;
+}
+
+.emp-report-drawer-content--hisky .el-table__body tr.hover-row > td.el-table__cell,
+.emp-report-drawer-content--hisky .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell,
+.emp-report-drawer-content--hisky .el-table__body tr.current-row > td.el-table__cell {
+  background: rgba(24, 167, 168, 0.07) !important;
+}
+
+.emp-report-drawer-content--hisky .detail-header {
+  border-bottom-color: rgba(12, 94, 108, 0.1);
+}
+
+.emp-report-drawer-content--hisky .detail-creator,
+.emp-report-drawer-content--hisky .project-group-name {
+  color: #12313a;
+  font-weight: 650;
+}
+
+.emp-report-drawer-content--hisky .detail-username,
+.emp-report-drawer-content--hisky .detail-date,
+.emp-report-drawer-content--hisky .project-group-code,
+.emp-report-drawer-content--hisky .entry-date {
+  color: rgba(21, 52, 61, 0.46);
+}
+
+.emp-report-drawer-content--hisky .detail-dept,
+.emp-report-drawer-content--hisky .kpi-num,
+.emp-report-drawer-content--hisky .project-group-hours,
+.emp-report-drawer-content--hisky .entry-hours,
+.emp-report-drawer-content--hisky .raw-field-key {
+  color: #0b8491;
+}
+
+.emp-report-drawer-content--hisky .detail-kpi,
+.emp-report-drawer-content--hisky .project-group,
+.emp-report-drawer-content--hisky .raw-block {
+  background: #ffffff;
+  border: 1px solid rgba(12, 94, 108, 0.1);
+  box-shadow: 0 10px 24px rgba(7, 43, 52, 0.055);
+}
+
+.emp-report-drawer-content--hisky .kpi-label,
+.emp-report-drawer-content--hisky .section-title {
+  color: rgba(21, 52, 61, 0.5);
+}
+
+.emp-report-drawer-content--hisky .project-group-header {
+  background: rgba(24, 167, 168, 0.075);
+  border-bottom-color: rgba(12, 94, 108, 0.08);
+}
+
+.emp-report-drawer-content--hisky .entry-row {
+  border-bottom-color: rgba(12, 94, 108, 0.06);
+}
+
+.emp-report-drawer-content--hisky .entry-type-tag {
+  background: rgba(24, 167, 168, 0.09) !important;
+  border-color: rgba(11, 132, 145, 0.26) !important;
+  color: #1f5360 !important;
+  font-weight: 600;
+}
+
+.emp-report-drawer-content--hisky .entry-desc,
+.emp-report-drawer-content--hisky .raw-field-value {
+  color: rgba(21, 52, 61, 0.72);
+}
+
+.emp-report-drawer-content--hisky .drawer-divider {
+  background: rgba(12, 94, 108, 0.1);
+}
+
+.emp-report-drawer-content--hisky .raw-toggle {
+  color: rgba(21, 52, 61, 0.52);
+  font-weight: 600;
+}
+
+.emp-report-drawer-content--hisky .raw-toggle:hover,
+.emp-report-drawer-content--hisky .raw-toggle:focus-visible {
+  color: #0b8491;
 }
 </style>

@@ -11,7 +11,24 @@ export const typeColors = {
   meeting: '#7D9B76',
   documentation: '#8B7AA0',
   design: '#D4695A',
-  other: 'rgba(255,255,255,0.3)',
+  other: '#64748B',
+  开发: '#C8A45C',
+  产品开发: '#C8A45C',
+  设计开发: '#C8A45C',
+  测试: '#4A90A4',
+  测试调试: '#4A90A4',
+  调试: '#4A90A4',
+  会议: '#7D9B76',
+  文档: '#8B7AA0',
+  文档编写: '#8B7AA0',
+  设计: '#D4695A',
+  其他: '#64748B',
+}
+
+function tint(color) {
+  if (!color) return '#64748B22'
+  if (color.startsWith('rgba') || color.startsWith('rgb')) return color
+  return `${color}22`
 }
 
 /**
@@ -26,7 +43,7 @@ export const typeColors = {
 export function typeTagStyle(type) {
   const c = typeColors[type] || typeColors.other
   return {
-    background: c + '22',
+    background: tint(c),
     borderColor: c,
     color: c,
   }

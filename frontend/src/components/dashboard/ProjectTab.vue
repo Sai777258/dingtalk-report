@@ -13,6 +13,10 @@ import { typeTagStyle } from '@/utils/typeColors'
 import ProjectSummary from '@/components/dashboard/ProjectSummary.vue'
 import EmployeeReportDrawer from '@/components/dashboard/EmployeeReportDrawer.vue'
 
+const props = defineProps({
+  variant: { type: String, default: 'classic' },
+})
+
 const loading = ref(true)
 const error = ref('')
 const data = ref(null)
@@ -35,6 +39,7 @@ async function load() {
   error.value = ''
   try {
     data.value = await getDashboardByView('project')
+    autoSelect()
   } catch (e) {
     error.value = e.response?.data?.detail || '加载项目数据失败'
   } finally {
@@ -199,6 +204,7 @@ load()
         v-model="reportDrawerVisible"
         :employee-username="reportDrawerEmployee.username"
         :employee-name="reportDrawerEmployee.name"
+        :variant="props.variant"
       />
     </template>
   </div>
@@ -476,6 +482,11 @@ load()
 .project-tab .el-table__body td:focus-visible {
   outline: none !important;
   box-shadow: none !important;
+}
+
+/* ---- Pointer cursor on clickable rows ---- */
+.project-tab .el-table__body tr {
+  cursor: pointer;
 }
 
 /* ---- No bg transition ---- */

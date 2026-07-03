@@ -31,25 +31,25 @@ DEMO_PROJECTS = [
         "name": "项目A",
         "code": "PROJ-A",
         "aliases": ["A项目", "ProjectA", "【项目A】"],
-        "pm_username": "prod_mgr",
+        "pm_username": "proj_mgr",
     },
     {
         "name": "项目B",
         "code": "PROJ-B",
         "aliases": ["B项目", "数据平台", "【项目B】"],
-        "pm_username": "prod_mgr",
+        "pm_username": "proj_mgr",
     },
     {
         "name": "项目C",
         "code": "PROJ-C",
         "aliases": ["C项目", "客户端", "【项目C】"],
-        "pm_username": "prod_mgr",
+        "pm_username": "proj_mgr",
     },
     {
         "name": "内部工具",
         "code": "TOOL",
         "aliases": ["工具", "运维平台", "【内部工具】"],
-        "pm_username": "prod_mgr",
+        "pm_username": "proj_mgr",
     },
 ]
 
@@ -139,7 +139,7 @@ class Command(BaseCommand):
         # ---- Projects ----
         self.stdout.write("创建 Demo 项目...")
         projects = {}
-        pm = User.objects.get(username="prod_mgr")
+        pm = User.objects.get(username="proj_mgr")
         for proj_info in DEMO_PROJECTS:
             proj, created = Project.objects.get_or_create(
                 code=proj_info["code"],
@@ -190,9 +190,9 @@ class Command(BaseCommand):
         user_config = {
             "admin": ("技术部", TECH_TASKS),
             "employee": ("技术部", TECH_TASKS),
-            "dept_mgr": ("技术部", TECH_TASKS),
-            "prod_mgr": ("产品部", PRODUCT_TASKS),
-            "executive": ("技术部", TECH_TASKS),  # executive also gets tech tasks
+            "dept_mgr_l1": ("技术部", TECH_TASKS),
+            "dept_mgr_l2": ("技术部", TECH_TASKS),
+            "proj_mgr": ("产品部", PRODUCT_TASKS),
         }
 
         # Generate working days (Mon-Fri only)
